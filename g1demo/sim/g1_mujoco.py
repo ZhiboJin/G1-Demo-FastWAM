@@ -287,6 +287,9 @@ class G1Sim:
         self._actuator_joint = np.array(
             [int(self.model.actuator_trnid[i, 0]) for i in range(self.model.nu)]
         )
+        self._pelvis = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
+        if self._pelvis < 0:
+            raise RuntimeError("Could not find the pelvis body in the G1 model")
         # Map the model's actuator order onto MuJoCo joint order.
         names = [
             mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint)
@@ -380,9 +383,8 @@ class G1Sim:
 
     @property
     def base_position(self) -> np.ndarray:
-        if not self.free_base:
-            return np.zeros(3)
-        return self.data.qpos[0:3].copy()
+        """Pelvis position in world coordinates, valid in both base modes."""
+        return self.data.xpos[self._pelvis].copy()
 
     @property
     def base_ang_vel_body(self) -> np.ndarray:
@@ -397,7 +399,12 @@ class G1Sim:
         return self.data.qvel[3:6].copy()
 
     def is_fallen(self, threshold: float = 0.45) -> bool:
-        """Whether the pelvis has dropped far below the standing height."""
+        """Whether the pelvis has dropped far below the standing height.
+
+        An anchored robot has no free joint and therefore cannot fall.
+        """
+        if not self.free_base:
+            return False
         return bool(self.base_position[2] < threshold)
 
     def lowest_contact_height(self) -> float:
