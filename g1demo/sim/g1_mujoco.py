@@ -202,8 +202,18 @@ def build_model(source: Path | None = None, output: Path | None = None,
     # A ground plane to stand on.
     ET.SubElement(
         world, "geom", name="floor", type="plane", size="4 4 0.05",
-        rgba="0.22 0.24 0.28 1", condim="3", friction="1.0 0.005 0.0001",
+        rgba="0.32 0.34 0.38 1", condim="3", friction="1.0 0.005 0.0001",
     )
+
+    # The official MJCF is meant to be <include>d into a scene that supplies the
+    # lighting and global visual settings. Rebuilt standalone it renders almost
+    # black, so reproduce what that scene provides.
+    visual = ET.SubElement(root, "visual")
+    ET.SubElement(visual, "headlight", diffuse="0.7 0.7 0.7",
+                  ambient="0.35 0.35 0.35", specular="0.1 0.1 0.1")
+    ET.SubElement(visual, "rgba", haze="0.15 0.25 0.35 1")
+    world.insert(0, ET.Element("light", pos="0 0 2.5", dir="0 0 -1",
+                               directional="true", castshadow="false"))
 
     # `implicitfast` integrates the actuator damping implicitly. With position
     # servos at the SONIC gains (kp up to ~99) the default explicit Euler
@@ -423,9 +433,14 @@ class G1Sim:
 
     # -- rendering --------------------------------------------------------
     def render(self, height: int = 480, width: int = 640,
-               camera=None, azimuth: float = 135.0, elevation: float = -12.0,
-               distance: float = 2.4) -> np.ndarray:
-        """Render one offscreen frame as an ``(H, W, 3)`` uint8 array."""
+               camera=None, azimuth: float = 125.0, elevation: float = -6.0,
+               distance: float = 1.9, lookat=(0.0, 0.0, 0.72)) -> np.ndarray:
+        """Render one offscreen frame as an ``(H, W, 3)`` uint8 array.
+
+        Defaults frame the standing robot. Set ``MUJOCO_GL`` to ``glfw`` where a
+        display exists, or ``egl`` headless; without either, MuJoCo cannot create
+        a GL context and this raises.
+        """
         import mujoco
 
         if not hasattr(self, "_renderer"):
@@ -433,7 +448,7 @@ class G1Sim:
         if camera is None:
             camera = mujoco.MjvCamera()
             camera.type = mujoco.mjtCamera.mjCAMERA_FREE
-            camera.lookat[:] = [0.0, 0.0, 0.7]
+            camera.lookat[:] = lookat
             camera.distance = distance
             camera.azimuth = azimuth
             camera.elevation = elevation

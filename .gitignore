@@ -14,8 +14,12 @@ checkpoints/
 assets/g1_meshfree.xml
 
 # Run outputs: plots, reports and exported reference clips. Regenerate with
-# the documented `python -m g1demo.cli ...` commands.
-artifacts/
+# the documented `python -m g1demo.cli ...` commands. `artifacts/*` rather than
+# `artifacts/` so the demo recordings below can be tracked.
+artifacts/*
+!artifacts/standing.mp4
+!artifacts/standing_gain1.0.mp4
+!artifacts/standing_montage.png
 
 # Caches kept inside the repo because the sandbox cannot write ~/.cache.
 .cache/

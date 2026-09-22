@@ -54,6 +54,28 @@ prediction exactly, and every tensor layout has been checked against the C++.
 
 Full detail, measurements and the fix path: [`docs/sim2sim_gap.md`](docs/sim2sim_gap.md).
 
+## See it run
+
+| Artefact | What it shows |
+|---|---|
+| `artifacts/standing.mp4` | the G1 holding a standing reference for 5 s under SONIC control (gain 0.5) |
+| `artifacts/standing_gain1.0.mp4` | the same run at NVIDIA's nominal gain — falls at 1.6 s |
+| `artifacts/standing_gain0.5.png` | pelvis height, decoder output, tracking error, commanded targets |
+| `artifacts/standing_gain0.5_token.png` | the 64-D FSQ token the encoder produced |
+
+Rendered on the laptop GPU with `MUJOCO_GL=egl` (use `glfw` when a display exists).
+
+**Compute reality.** CUDA works here, so the simulation renders on the GPU. The
+7.5 GiB of VRAM is *not* enough for FastWAM itself: it is a ~6 B parameter model,
+about 12 GB in bf16 before activations, and upstream ships no quantized build.
+Running or fine-tuning FastWAM therefore needs a larger GPU; everything up to and
+including the SONIC chain runs fine on CPU.
+
+**If GPU commands fail with `cuInit` error 304** and `nvidia-smi` says "Failed to
+initialize NVML", check whether you are inside a sandbox that restricts device
+access. That is not a driver fault: the same commands work in a normal shell.
+
+
 ## Quickstart
 
 ```bash
@@ -69,7 +91,7 @@ export HF_HOME=$PWD/.cache/huggingface
 # 3. Verify the contract and the SONIC chain (no physics, no GPU)
 .venv-model/bin/python -m g1demo.cli verify          # 16/16 checks
 
-# 4. Closed-loop simulation
+# 4. Closed-loop simulation (add MUJOCO_GL=egl --video to record it)
 .venv-model/bin/python -m g1demo.cli demo --motion standing --action-gain 0.5
 
 # 5. Tests

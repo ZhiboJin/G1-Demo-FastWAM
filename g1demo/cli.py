@@ -238,8 +238,9 @@ def _write_video(frames: list[np.ndarray], path: Path, fps: int) -> str:
 def _write_plots(records, summary, path: Path, control_hz: int) -> str:
     """Plot what the controller commanded and how the robot responded.
 
-    Offscreen MuJoCo rendering needs a GL context. Where that is unavailable
-    (headless machine, no working GPU driver) these plots are the run artefact.
+    MuJoCo offscreen rendering needs a GL context, which a headless machine may
+    not have. These plots need none, so they are written even when ``--video``
+    cannot be.
     """
     # Matplotlib insists on a writable config dir, and the sandbox may deny
     # ~/.config, so keep it beside the run outputs.
