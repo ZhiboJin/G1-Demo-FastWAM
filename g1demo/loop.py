@@ -17,17 +17,18 @@ hardware layer can route them, which is what NVIDIA's deployment does.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
 import numpy as np
 
 from .contract import contract
+from .sim.g1_mujoco import CONTROL_HZ, G1Sim
 from .sonic.decoder import FPS as SONIC_FPS
 from .sonic.decoder import NUM_FRAMES, SonicDecoder
-from .sonic.encoder import SonicEncoder, heading_yaw
+from .sonic.encoder import LOOKAHEAD, SonicEncoder, heading_yaw
 from .sonic_params import (
-    default_angles,
     isaaclab_to_mujoco,
     joint_lower,
     joint_names,
@@ -35,7 +36,6 @@ from .sonic_params import (
     measured_to_isaaclab_relative,
     q_target_from_action,
 )
-from .sim.g1_mujoco import CONTROL_HZ, G1Sim
 
 
 class ActionSource(Protocol):
@@ -80,7 +80,7 @@ class History:
     base_ang_vel: np.ndarray
 
     @classmethod
-    def from_state(cls, sim: G1Sim) -> "History":
+    def from_state(cls, sim: G1Sim) -> History:
         position = measured_to_isaaclab_relative(sim.joint_pos)
         velocity = isaaclab_to_mujoco(sim.joint_vel)  # order only; default is constant
         return cls(
@@ -116,8 +116,10 @@ class RunSummary:
     saturation_fraction: float
     max_abs_raw_action: float
     token_norm_range: tuple[float, float]
+    #: The gain the run used. 1.0 is NVIDIA's convention; see docs/sim2sim_gap.md.
     action_gain: float = 1.0
-    per_joint_rms_error: np.ndarray = field(repr=False, default=None)
+    #: Per-joint RMS tracking error, MuJoCo order, or None if nothing ran.
+    per_joint_rms_error: np.ndarray | None = field(repr=False, default=None)
 
     def as_dict(self) -> dict:
         return {
@@ -166,27 +168,42 @@ class WholeBodyController:
                 )
 
     def run(self, sim: G1Sim, source: ActionSource, ticks: int = 100,
-                 instruction: str | None = None, reference_yaw: float | None = None,
-                 replan_every: int | None = None,
-                 on_step=None, stop_on_fall: bool = True) -> tuple[RunSummary, list[StepRecord]]:
-        """Run the closed loop and return a summary plus per-tick records."""
+            instruction: str | None = None, reference_yaw: float | None = None,
+            replan_every: int | None = None,
+            on_step: Callable[[StepRecord, G1Sim], None] | None = None,
+            stop_on_fall: bool = True) -> tuple[RunSummary, list[StepRecord]]:
+        """Run the closed loop and return a summary plus per-tick records.
+
+        The policy is re-queried every ``replan_every`` ticks, and in any case
+        before the current chunk's lookahead window runs out. ``replan_every``
+        defaults to exactly that limit, so each chunk is fully consumed before the
+        next is requested. ``on_step`` is called after every tick with the record
+        and the simulator, for rendering or logging.
+        """
+        if ticks <= 0:
+            raise ValueError(f"ticks must be positive, got {ticks}")
         if reference_yaw is None:
             reference_yaw = heading_yaw(sim.base_quat_wxyz)
 
         history = History.from_state(sim)
         records: list[StepRecord] = []
 
-        chunk = np.asarray(source.actions(sim, instruction), dtype=np.float64)
+        def plan() -> tuple[np.ndarray, int]:
+            """Fetch one action chunk and its last frame index that has lookahead."""
+            chunk = np.asarray(source.actions(sim, instruction), dtype=np.float64)
+            last = len(chunk) - LOOKAHEAD
+            if last < 0:
+                raise ValueError(
+                    f"Action chunk of {len(chunk)} frames is too short: SONIC mode 0 "
+                    f"needs {LOOKAHEAD} samples of lookahead, and the loop replans "
+                    f"before a chunk is exhausted."
+                )
+            return chunk, last
+
+        chunk, last_frame = plan()
         frame = 0
-        # SONIC needs 46 samples of lookahead per encode; replan before running out.
-        horizon_ticks = len(chunk) - 45
-        if horizon_ticks <= 0:
-            raise ValueError(
-                f"Action chunk of {len(chunk)} frames is too short: SONIC mode 0 needs "
-                f"at least 46 samples, and the demo replans before exhausting the chunk."
-            )
         if replan_every is None:
-            replan_every = horizon_ticks
+            replan_every = last_frame + 1
 
         errors: list[np.ndarray] = []
         heights: list[float] = []
@@ -194,8 +211,8 @@ class WholeBodyController:
         tokens: list[float] = []
 
         for tick in range(ticks):
-            if frame + 45 >= len(chunk):
-                chunk = np.asarray(source.actions(sim, instruction), dtype=np.float64)
+            if frame > last_frame or frame >= replan_every:
+                chunk, last_frame = plan()
                 frame = 0
 
             packet = self.encoder.encode(

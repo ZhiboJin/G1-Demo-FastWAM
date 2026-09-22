@@ -149,14 +149,14 @@ def encode_mode0(root: np.ndarray, robot_quat_wxyz: np.ndarray,
 
 
 def pack_observation(actions: np.ndarray, robot_quat_wxyz, initial_reference_yaw: float,
-                     frame: int = 0) -> tuple[np.ndarray, dict[str, np.ndarray],
-                                              np.ndarray, np.ndarray]:
+                     frame: int = 0) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Pack one encoder input from a physical-unit action chunk.
 
-    ``actions`` is ``[T, action_dim]`` of absolute joint angles (radians),
-    hand commands, and root roll/pitch/yaw-rate.
+    ``actions`` is ``[T, action_dim]`` of absolute joint angles (radians), hand
+    commands, and root roll/pitch/yaw-rate.
 
-    Returns ``(obs[1, 1751], hands, joint_positions_mujoco[T, 29], joint_velocities_mujoco[T, 29])``.
+    Returns ``(observation[1, 1751], hands)``. The hands are returned because they
+    travel *beside* the token rather than through the graph.
     """
     c = contract()
     actions = np.asarray(actions, dtype=np.float64)
@@ -193,9 +193,11 @@ def pack_observation(actions: np.ndarray, robot_quat_wxyz, initial_reference_yaw
     obs = np.zeros((1, INPUT_DIM), dtype=np.float32)
     # encoder_mode_4 slot stays all zeros: mode 0 is [0, 0, 0, 0], not one-hot.
     obs[0, _SLOT["motion_joint_positions_10frame_step5"]] = isaac[frame + OFFSETS].reshape(-1)
-    obs[0, _SLOT["motion_joint_velocities_10frame_step5"]] = velocity_isaac[frame + OFFSETS].reshape(-1)
+    obs[0, _SLOT["motion_joint_velocities_10frame_step5"]] = velocity_isaac[
+        frame + OFFSETS
+    ].reshape(-1)
     obs[0, _SLOT["motion_anchor_orientation_heading_10frame_step5"]] = orientation
-    return obs, hands, mujoco, velocity_isaac
+    return obs, hands
 
 
 def _check_limits(mujoco: np.ndarray) -> None:
@@ -256,7 +258,11 @@ class SonicEncoder:
         if not path.exists():
             raise FileNotFoundError(f"Missing SONIC observation config: {path}")
         config = yaml.safe_load(path.read_text(encoding="utf-8"))["encoder"]
-        names = [item["name"] for item in config["encoder_observations"] if item.get("enabled", True)]
+        names = [
+            item["name"]
+            for item in config["encoder_observations"]
+            if item.get("enabled", True)
+        ]
         expected = [name for name, _ in LAYOUT]
         if names != expected:
             raise ValueError(
@@ -276,7 +282,7 @@ class SonicEncoder:
         Returns ``{"token": [64], "left_hand": [n], "right_hand": [n]}``. Hand
         commands are passed through untouched; they are not part of the graph.
         """
-        obs, hands, _, _ = pack_observation(
+        obs, hands = pack_observation(
             actions, robot_quat_wxyz, initial_reference_yaw, frame
         )
         token = self.session.run([self.output.name], {self.input.name: obs})[0]

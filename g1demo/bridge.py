@@ -29,7 +29,13 @@ from pathlib import Path
 import numpy as np
 
 from .contract import contract
-from .sonic_params import default_angles, joint_lower, joint_names, joint_upper
+from .sonic_params import (
+    default_angles,
+    joint_lower,
+    joint_names,
+    joint_upper,
+    mujoco_to_isaaclab,
+)
 
 #: SONIC reference clips run at the policy rate.
 FPS = 50
@@ -68,8 +74,6 @@ def split_chunk(actions: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, 
         )
 
     # The CSV convention is IsaacLab order; convert from MuJoCo order.
-    from .sonic_params import mujoco_to_isaaclab
-
     root = array[:, c["root"].slice]
     hands = {side: array[:, c[f"{side}_end_effector"].slice] for side in ("left", "right")}
     return mujoco_to_isaaclab(mujoco), root, hands
@@ -105,7 +109,11 @@ def export(actions: np.ndarray, output: Path, root_height: float = 0.793,
     _write_csv(output / "joint_pos.csv", joints, [f"joint_{i}" for i in range(29)])
     _write_csv(output / "joint_vel.csv", velocity, [f"joint_vel_{i}" for i in range(29)])
     _write_csv(output / "body_pos.csv", position, ["body_0_x", "body_0_y", "body_0_z"])
-    _write_csv(output / "body_quat.csv", quaternion, ["body_0_w", "body_0_x", "body_0_y", "body_0_z"])
+    _write_csv(
+        output / "body_quat.csv",
+        quaternion,
+        ["body_0_w", "body_0_x", "body_0_y", "body_0_z"],
+    )
     (output / "metadata.txt").write_text(
         f"Metadata for: {output.name}\nBody part indexes:\n[0]\n"
         f"Total timesteps: {len(joints)}\n"

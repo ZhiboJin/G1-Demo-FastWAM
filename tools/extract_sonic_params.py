@@ -238,7 +238,7 @@ def joint_limits(sonic_repo: Path, expected_order: list[str]) -> dict[str, list[
     # the deployment validates against; a mismatch means one of them drifted.
     if urdf.exists():
         urdf_limits = _limits_from_urdf(urdf)
-        for name, lo, hi in zip(names, lower, upper):
+        for name, lo, hi in zip(names, lower, upper, strict=True):
             if name not in urdf_limits:
                 raise SystemExit(f"{name} present in MJCF but missing from the URDF")
             ulo, uhi = urdf_limits[name]
@@ -251,7 +251,7 @@ def joint_limits(sonic_repo: Path, expected_order: list[str]) -> dict[str, list[
     order = {name: index for index, name in enumerate(expected_order)}
     lower_out = [0.0] * 29
     upper_out = [0.0] * 29
-    for name, lo, hi in zip(names, lower, upper):
+    for name, lo, hi in zip(names, lower, upper, strict=True):
         lower_out[order[name]] = lo
         upper_out[order[name]] = hi
     return {"lower": lower_out, "upper": upper_out}
@@ -271,7 +271,6 @@ def main() -> int:
     if args.sonic_repo is not None:
         sonic_repo = args.sonic_repo.expanduser().resolve()
     else:
-        import os
         import sys
 
         sys.path.insert(0, str(ROOT / "g1demo"))

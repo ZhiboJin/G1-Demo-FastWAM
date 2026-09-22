@@ -5,11 +5,13 @@
     python -m g1demo.cli verify                    # checks that need no physics
     python -m g1demo.cli demo --motion standing    # closed-loop simulation
     python -m g1demo.cli gain-sweep                # plant gain calibration
+    python -m g1demo.cli bridge-export             # clip for NVIDIA's C++ simulator
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +19,11 @@ import numpy as np
 
 from .contract import contract
 from .paths import ARTIFACTS, ROOT
+from .policy import ScriptedReference
+from .sonic.decoder import INPUT_DIM as DECODER_INPUT_DIM
+from .sonic.decoder import NUM_FRAMES, SonicDecoder
+from .sonic.encoder import INPUT_DIM as ENCODER_INPUT_DIM
+from .sonic.encoder import TOKEN_DIM, SonicEncoder, pack_observation
 from .sonic_params import (
     action_scale,
     default_angles,
@@ -25,9 +32,10 @@ from .sonic_params import (
     joint_upper,
     kd,
     kp,
+    measured_to_isaaclab_relative,
+    q_target_from_action,
     validate_against_contract,
 )
-from .policy import ScriptedReference
 
 MOTIONS = ("standing", "arms_up", "squat", "wave")
 
@@ -37,6 +45,7 @@ MOTIONS = ("standing", "arms_up", "squat", "wave")
 # ---------------------------------------------------------------------------
 def cmd_download_sonic(args) -> int:
     from .download import download_sonic
+
     return download_sonic(force=args.force, planner_out=args.planner_out)
 
 
@@ -44,114 +53,138 @@ def cmd_download_sonic(args) -> int:
 # extract-params
 # ---------------------------------------------------------------------------
 def cmd_extract_params(args) -> int:
+    """Run tools/extract_sonic_params.py, forwarding the arguments it accepts."""
     sys.path.insert(0, str(ROOT / "tools"))
-    import extract_sonic_params as extractor  # type: ignore
+    import extract_sonic_params as extractor  # type: ignore[import-not-found]
 
-    argv = []
+    argv: list[str] = []
     if args.sonic_repo:
         argv += ["--sonic-repo", str(args.sonic_repo)]
     if args.out:
         argv += ["--out", str(args.out)]
-    old = sys.argv
+
+    original = sys.argv
     sys.argv = ["extract_sonic_params.py", *argv]
     try:
         return extractor.main()
     finally:
-        sys.argv = old
+        sys.argv = original
 
 
 # ---------------------------------------------------------------------------
 # verify
 # ---------------------------------------------------------------------------
 def cmd_verify(args) -> int:
-    """Checks that need no GPU, no upstream FastWAM weights and no physics."""
-    return _verify()
+    """Check the contract, the SONIC chain and the action convention.
 
-
-def _verify() -> int:
-    from .sonic.decoder import INPUT_DIM as DEC_INPUT
-    from .sonic.decoder import SonicDecoder
-    from .sonic.encoder import INPUT_DIM as ENC_INPUT
-    from .sonic.encoder import SonicEncoder, pack_observation
-
-    c = contract()
+    Needs neither a GPU, nor upstream FastWAM weights, nor physics. This is the
+    cheapest way to confirm a fresh checkout is wired up correctly.
+    """
     checks: list[tuple[str, bool, str]] = []
 
-    def check(name: str, ok: bool, detail: str = "") -> None:
-        checks.append((name, bool(ok), detail))
+    def check(name: str, passed: bool, detail: str = "") -> None:
+        checks.append((name, bool(passed), detail))
 
-    # -- contract --------------------------------------------------------
-    check("contract action width is 29 joints + hands + root",
-          c.action_dim == 29 + sum(c.hand_sizes.values()) + c.root_size,
-          f"action_dim={c.action_dim}")
+    c = contract()
+
+    # -- contract ---------------------------------------------------------
+    expected_width = 29 + sum(c.hand_sizes.values()) + c.root_size
+    check("contract width is 29 joints + hands + root",
+          c.action_dim == expected_width, f"action_dim={c.action_dim}")
+
     check("contract joint names match the SONIC model",
           set(c.joint_names) == set(joint_names()), f"{c.num_joints} joints")
     validate_against_contract(c.joint_names)
-    check("joint limits bracket the default pose",
-          bool(((default_angles() > joint_lower()) & (default_angles() < joint_upper())).all()),
-          f"{int(((default_angles() > joint_lower()) & (default_angles() < joint_upper())).sum())}/29")
-    check("PD gains and action scales are finite and positive",
-          bool(np.isfinite(kp()).all() and np.isfinite(kd()).all()
-               and (action_scale() > 0).all() and (kp() > 0).all()),
-          f"kp {kp().min():.1f}..{kp().max():.1f}, scale {action_scale().min():.3f}..{action_scale().max():.3f}")
 
-    # -- encoder ---------------------------------------------------------
+    in_range = (default_angles() > joint_lower()) & (default_angles() < joint_upper())
+    check("joint limits bracket the default pose",
+          bool(in_range.all()), f"{int(in_range.sum())}/29")
+
+    gains_ok = (
+        np.isfinite(kp()).all()
+        and np.isfinite(kd()).all()
+        and (kp() > 0).all()
+        and (action_scale() > 0).all()
+    )
+    detail = (
+        f"kp {kp().min():.1f}..{kp().max():.1f}, "
+        f"scale {action_scale().min():.3f}..{action_scale().max():.3f}"
+    )
+    check("PD gains and action scales are finite and positive", bool(gains_ok), detail)
+
+    # -- encoder ----------------------------------------------------------
     flat = c.flat_indices_for(joint_names())
     chunk = np.zeros((60, c.action_dim))
     chunk[:, flat] = default_angles()
-    obs, hands, _, _ = pack_observation(chunk, [1, 0, 0, 0], 0.0, frame=0)
-    check("encoder observation width", obs.shape == (1, ENC_INPUT), f"{obs.shape} vs [1,{ENC_INPUT}]")
+
+    obs, _ = pack_observation(chunk, [1, 0, 0, 0], 0.0, frame=0)
+    check("encoder observation width",
+          obs.shape == (1, ENCODER_INPUT_DIM), f"{obs.shape} vs [1,{ENCODER_INPUT_DIM}]")
     check("encoder input is finite", bool(np.isfinite(obs).all()))
     check("encoder mode slot encodes mode 0 as zeros",
           bool(np.allclose(obs[0, :4], 0.0)), f"{obs[0, :4]}")
+
+    identity_6d = [1, 0, 0, 1, 0, 0]
     check("orientation block is identity for a level robot holding world yaw",
-          bool(np.allclose(obs[0, 584:590], [1, 0, 0, 1, 0, 0], atol=1e-6)),
+          bool(np.allclose(obs[0, 584:590], identity_6d, atol=1e-6)),
           f"{np.round(obs[0, 584:590], 4)}")
 
     encoder = SonicEncoder()
     packet = encoder.encode(chunk, [1, 0, 0, 0], 0.0, frame=0)
-    check("token shape", packet["token"].shape == (64,), f"{packet['token'].shape}")
-    check("token is FSQ-quantized", bool(np.allclose(packet["token"] * 16, np.round(packet["token"] * 16), atol=1e-6)))
+    token = packet["token"]
+    check("token shape", token.shape == (TOKEN_DIM,), f"{token.shape}")
+    check("token is FSQ-quantized",
+          bool(np.allclose(token * 16, np.round(token * 16), atol=1e-6)))
 
-    # Hands must not reach the encoder.
+    # The hands must not reach the graph.
     altered = chunk.copy()
     altered[:, c["left_end_effector"].slice] = 0.73
     altered[:, c["right_end_effector"].slice] = -0.42
     second = encoder.encode(altered, [1, 0, 0, 0], 0.0, frame=0)
-    check("hand commands bypass the encoder",
-          bool(np.array_equal(packet["token"], second["token"]))
-          and bool(np.allclose(second["left_hand"], 0.73))
-          and bool(np.allclose(second["right_hand"], -0.42)))
+    hands_bypass = (
+        np.array_equal(token, second["token"])
+        and np.allclose(second["left_hand"], 0.73)
+        and np.allclose(second["right_hand"], -0.42)
+    )
+    check("hand commands bypass the encoder", bool(hands_bypass))
 
-    # Short chunks must be rejected rather than silently padded.
+    # A short chunk must be rejected, never silently padded.
     try:
         pack_observation(chunk[:45], [1, 0, 0, 0], 0.0, frame=0)
         check("short reference is rejected", False, "no error raised")
     except ValueError as error:
-        check("short reference is rejected", True, str(error)[:48] + "...")
+        check("short reference is rejected", True, f"{str(error)[:48]}...")
 
-    # -- decoder ---------------------------------------------------------
-    from .sonic_params import measured_to_isaaclab_relative, q_target_from_action
-
+    # -- decoder ----------------------------------------------------------
     decoder = SonicDecoder()
-    history_pos = measured_to_isaaclab_relative(np.tile(default_angles(), (10, 1)))
-    zeros = np.zeros((10, 29))
-    raw = decoder.decode(packet["token"], history_pos, zeros, zeros, np.zeros((10, 3)), [1, 0, 0, 0])
+    history = measured_to_isaaclab_relative(np.tile(default_angles(), (NUM_FRAMES, 1)))
+    empty = np.zeros((NUM_FRAMES, 29))
+    raw = decoder.decode(
+        token=token,
+        joint_pos_history=history,
+        joint_vel_history=empty,
+        last_action_history=empty,
+        base_ang_vel_history=np.zeros((NUM_FRAMES, 3)),
+        base_quat_wxyz=[1, 0, 0, 0],
+    )
     check("decoder output shape", raw.shape == (29,), f"{raw.shape}")
     check("decoder output is finite", bool(np.isfinite(raw).all()),
           f"range {raw.min():.3f}..{raw.max():.3f}")
 
-    q = q_target_from_action(raw)
-    saturated = int(((q < joint_lower()) | (q > joint_upper())).sum())
+    target = q_target_from_action(raw)
+    saturated = int(((target < joint_lower()) | (target > joint_upper())).sum())
+    drift = float(np.abs(target - default_angles()).max())
     check("default-pose reference stays inside joint limits", saturated == 0,
-          f"{saturated}/29 saturated, max |dq|={np.abs(q - default_angles()).max():.3f} rad")
+          f"{saturated}/29 saturated, max |dq|={drift:.3f} rad")
 
-    # The action->target convention must match the C++ expression exactly.
-    permutation = np.asarray(__import__("json").loads(
-        (ROOT / "configs/g1_sonic_params.json").read_text())["isaaclab_to_mujoco"])
+    # The action -> target convention must reproduce the C++ expression exactly.
+    stored = json.loads((ROOT / "configs/g1_sonic_params.json").read_text())
+    permutation = np.asarray(stored["isaaclab_to_mujoco"])
     manual = default_angles() + raw[permutation] * action_scale()
-    check("q_target matches the C++ convention elementwise", bool(np.allclose(q, manual)))
+    check("q_target matches the C++ convention elementwise",
+          bool(np.allclose(target, manual)))
 
+    # -- report -----------------------------------------------------------
     passed = sum(1 for _, ok, _ in checks if ok)
     width = max(len(name) for name, _, _ in checks)
     print(f"contract + SONIC chain verification  ({passed}/{len(checks)} passed)\n")
@@ -162,17 +195,23 @@ def _verify() -> int:
 
     report = {
         "checks": [{"name": n, "passed": ok, "detail": d} for n, ok, d in checks],
-        "passed": passed, "total": len(checks),
+        "passed": passed,
+        "total": len(checks),
         "action_dim": c.action_dim,
-        "encoder_input_dim": ENC_INPUT,
-        "decoder_input_dim": DEC_INPUT,
-        "token_dim": 64,
-        "note": "No learned G1 FastWAM checkpoint exists; this verifies the contract, "
-                "the pretrained SONIC encoder/decoder and the action-to-target convention.",
+        "encoder_input_dim": ENCODER_INPUT_DIM,
+        "decoder_input_dim": DECODER_INPUT_DIM,
+        "token_dim": TOKEN_DIM,
+        "note": (
+            "No learned G1 FastWAM checkpoint exists upstream; this verifies the "
+            "contract, the pretrained SONIC encoder/decoder and the action-to-target "
+            "convention."
+        ),
     }
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    (ARTIFACTS / "verify.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(f"\nwrote {ARTIFACTS / 'verify.json'}")
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2) + "\n")
+    print(f"\nwrote {out}")
     return 0 if passed == len(checks) else 1
 
 
@@ -197,21 +236,18 @@ def _write_video(frames: list[np.ndarray], path: Path, fps: int) -> str:
 
 
 def _write_plots(records, summary, path: Path, control_hz: int) -> str:
-    """Plot the run: what the controller commanded and how the robot responded.
+    """Plot what the controller commanded and how the robot responded.
 
     Offscreen MuJoCo rendering needs a GL context. Where that is unavailable
     (headless machine, no working GPU driver) these plots are the run artefact.
     """
-    import os
-
-    # Matplotlib insists on a writable config dir; the sandbox may deny ~/.config.
+    # Matplotlib insists on a writable config dir, and the sandbox may deny
+    # ~/.config, so keep it beside the run outputs.
     os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".cache/matplotlib"))
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-
-    from .sonic_params import default_angles, joint_names
 
     times = np.arange(len(records)) / control_hz
     heights = np.array([record.base_height for record in records])
@@ -244,7 +280,8 @@ def _write_plots(records, summary, path: Path, control_hz: int) -> str:
     ax.set_title("Decoder output magnitude")
     ax.grid(alpha=0.3)
     ax2 = ax.twinx()
-    ax2.plot(times, saturated, color="tab:red", lw=0.9, alpha=0.7, label="saturated joints")
+    ax2.plot(times, saturated, color="tab:red", lw=0.9, alpha=0.7,
+             label="saturated joints")
     ax2.set_ylabel("joints outside limits", color="tab:red")
     ax2.tick_params(axis="y", labelcolor="tab:red")
 
@@ -258,8 +295,9 @@ def _write_plots(records, summary, path: Path, control_hz: int) -> str:
     ax.grid(alpha=0.3)
 
     ax = axes[1][1]
+    rest = default_angles()
     for index, name in enumerate(joint_names()):
-        if np.abs(commanded[:, index] - default_angles()[index]).max() > 0.05:
+        if np.abs(commanded[:, index] - rest[index]).max() > 0.05:
             ax.plot(times, commanded[:, index], lw=1.0, label=name)
     ax.set_xlabel("time [s]")
     ax.set_ylabel("commanded target [rad]")
@@ -272,7 +310,7 @@ def _write_plots(records, summary, path: Path, control_hz: int) -> str:
     figure.savefig(path, dpi=110)
     plt.close(figure)
 
-    # A second figure for the whole-body token, which is the SONIC latent.
+    # A second figure for the token, which is the SONIC latent.
     figure, axes = plt.subplots(2, 1, figsize=(12, 5), sharex=True)
     axes[0].plot(times, np.linalg.norm(tokens, axis=1), color="tab:blue")
     axes[0].set_ylabel("||token||")
@@ -297,26 +335,30 @@ def cmd_demo(args) -> int:
     free_base = args.mode == "free"
     sim = G1Sim(free_base=free_base)
     controller = WholeBodyController(action_gain=args.action_gain)
-    source = ScriptedReference(motion=args.motion, horizon=max(60, args.replan_horizon),
-                               amplitude=args.amplitude)
+    source = ScriptedReference(
+        motion=args.motion,
+        horizon=max(60, args.replan_horizon),
+        amplitude=args.amplitude,
+    )
 
     frames: list[np.ndarray] = []
     render_every = max(1, int(round(controller.control_hz / (args.video_fps or 25.0))))
     render_error: str | None = None
 
-    def on_step(record, sim_):
+    def on_step(record, sim_) -> None:
         nonlocal render_error
-        if render_error is not None:
-            return
-        if record.tick % render_every:
+        if render_error is not None or record.tick % render_every:
             return
         try:
             frames.append(sim_.render(height=args.height, width=args.width))
-        except Exception as error:  # GL context unavailable
+        except Exception as error:  # no GL context available
             render_error = f"{type(error).__name__}: {error}"
 
     summary, records = controller.run(
-        sim, source, ticks=args.ticks, replan_every=args.replan_every,
+        sim,
+        source,
+        ticks=args.ticks,
+        replan_every=args.replan_every,
         stop_on_fall=free_base and not args.allow_fall,
         on_step=on_step if args.video else None,
     )
@@ -328,8 +370,10 @@ def cmd_demo(args) -> int:
         "controller": "SONIC v1.1 encoder -> 64-D token -> SONIC v1.1 decoder -> PD targets",
         "policy_source": source.name,
         "fastwam_inference": False,
-        "fastwam_note": "No G1 FastWAM checkpoint exists upstream; a scripted reference "
-                        "drives the identical [T, 34] interface.",
+        "fastwam_note": (
+            "No G1 FastWAM checkpoint exists upstream; a scripted reference drives "
+            "the identical [T, 34] interface."
+        ),
         "hands_routed": "bypass encoder and decoder",
         "summary": summary.as_dict(),
         "worst_joints_by_rms_error": [
@@ -339,12 +383,16 @@ def cmd_demo(args) -> int:
     }
 
     if args.plot:
-        payload["plot"] = _write_plots(records, summary, Path(args.plot), controller.control_hz)
+        payload["plot"] = _write_plots(records, summary, Path(args.plot),
+                                       controller.control_hz)
 
     if args.video:
         if frames:
-            payload["video"] = _write_video(frames, Path(args.video), int(args.video_fps or 25.0))
-            montage = np.concatenate([frames[0], frames[len(frames) // 2], frames[-1]], axis=1)
+            payload["video"] = _write_video(frames, Path(args.video),
+                                            int(args.video_fps or 25.0))
+            montage = np.concatenate(
+                [frames[0], frames[len(frames) // 2], frames[-1]], axis=1
+            )
             from PIL import Image
 
             snapshot = Path(args.video).with_name(Path(args.video).stem + "_montage.png")
@@ -364,17 +412,21 @@ def cmd_demo(args) -> int:
     print(f"mode            {payload['mode']}")
     print(f"motion          {args.motion}  (source: {source.name})")
     print(f"action gain     {summary.action_gain}")
-    print(f"ticks           {summary.ticks}  ({summary.seconds:.2f} s at {controller.control_hz} Hz)")
+    print(f"ticks           {summary.ticks}  "
+          f"({summary.seconds:.2f} s at {controller.control_hz} Hz)")
     print(f"fell            {summary.fell}")
-    print(f"base height     min {summary.min_base_height:.3f} m -> final {summary.final_base_height:.3f} m")
+    print(f"base height     min {summary.min_base_height:.3f} m "
+          f"-> final {summary.final_base_height:.3f} m")
     print(f"tracking error  mean {summary.mean_joint_tracking_error:.4f} rad, "
           f"max {summary.max_joint_tracking_error:.4f} rad")
     print(f"saturation      {100 * summary.saturation_fraction:.2f}% of joint-ticks")
     print(f"max |action|    {summary.max_abs_raw_action:.3f}")
-    if payload.get("worst_joints_by_rms_error"):
-        print("worst joints    " + ", ".join(
-            f"{row['joint']}={row['rms_error_rad']:.3f}" for row in payload["worst_joints_by_rms_error"]
-        ))
+    if payload["worst_joints_by_rms_error"]:
+        worst = ", ".join(
+            f"{row['joint']}={row['rms_error_rad']:.3f}"
+            for row in payload["worst_joints_by_rms_error"]
+        )
+        print(f"worst joints    {worst}")
     for key in ("plot", "video", "snapshot", "video_error"):
         if key in payload:
             print(f"{key:<15} {payload[key]}")
@@ -388,9 +440,9 @@ def cmd_demo(args) -> int:
 def cmd_gain_sweep(args) -> int:
     """Calibrate the effective loop gain of the MuJoCo plant.
 
-    NVIDIA's convention is gain 1.0. This sweep exists because the MuJoCo
-    position servos are stiffer than the IsaacLab actuators the policy was
-    trained against, so 1.0 over-drives the balance loop.
+    NVIDIA's convention is gain 1.0. This sweep exists because the MuJoCo position
+    servos are stiffer than the IsaacLab actuators the policy was trained against,
+    so 1.0 over-drives the balance loop. See docs/sim2sim_gap.md.
     """
     from .loop import WholeBodyController
     from .sim.g1_mujoco import G1Sim
@@ -408,10 +460,12 @@ def cmd_gain_sweep(args) -> int:
               f"err_mean={summary.mean_joint_tracking_error:.4f} "
               f"sat={100 * summary.saturation_fraction:.1f}%")
 
-    best = max(rows, key=lambda row: (not row["fell"], row["ticks"], -row["mean_joint_tracking_error_rad"]))
+    best = max(rows, key=lambda row: (not row["fell"], row["ticks"],
+                                      -row["mean_joint_tracking_error_rad"]))
     print(f"\n  most stable gain: {best['action_gain']}")
     out = ARTIFACTS / "gain_sweep.json"
-    out.write_text(json.dumps({"motion": args.motion, "mode": args.mode, "rows": rows}, indent=2) + "\n")
+    out.write_text(json.dumps(
+        {"motion": args.motion, "mode": args.mode, "rows": rows}, indent=2) + "\n")
     print(f"  wrote {out}")
     return 0
 
@@ -420,7 +474,7 @@ def cmd_gain_sweep(args) -> int:
 # bridge-export
 # ---------------------------------------------------------------------------
 def cmd_bridge(args) -> int:
-    """Export an action chunk as a SONIC reference clip for the official C++ sim."""
+    """Export an action chunk as a SONIC reference clip for NVIDIA's C++ simulator."""
     from .bridge import export
 
     if args.actions:
@@ -429,7 +483,7 @@ def cmd_bridge(args) -> int:
     else:
         actions = ScriptedReference(motion=args.motion, horizon=args.horizon).actions()
         origin = args.origin or f"scripted:{args.motion}"
-        # Keep a copy so the exact chunk that produced the clip is auditable.
+        # Keep the exact chunk that produced the clip, so the export is auditable.
         args.out.mkdir(parents=True, exist_ok=True)
         np.save(args.out / "source_actions.npy", actions)
 
@@ -444,8 +498,11 @@ def cmd_bridge(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="g1demo", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog="g1demo",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("download-sonic", help="fetch the SONIC v1.1 ONNX graphs")
@@ -453,12 +510,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--planner-out", type=Path, default=None)
     p.set_defaults(func=cmd_download_sonic)
 
-    p = sub.add_parser("extract-params", help="regenerate configs/g1_sonic_params.json")
+    p = sub.add_parser("extract-params",
+                       help="regenerate configs/g1_sonic_params.json")
     p.add_argument("--sonic-repo", type=Path, default=None)
     p.add_argument("--out", type=Path, default=None)
     p.set_defaults(func=cmd_extract_params)
 
-    p = sub.add_parser("verify", help="verify the contract and SONIC chain")
+    p = sub.add_parser("verify", help="verify the contract and the SONIC chain")
+    p.add_argument("--out", type=Path, default=ARTIFACTS / "verify.json")
     p.set_defaults(func=cmd_verify)
 
     p = sub.add_parser("demo", help="run the closed-loop MuJoCo demo")
@@ -469,8 +528,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--action-gain", type=float, default=1.0,
                    help="1.0 is NVIDIA's convention; see docs/sim2sim_gap.md")
     p.add_argument("--amplitude", type=float, default=1.0)
-    p.add_argument("--replan-horizon", type=int, default=100)
-    p.add_argument("--replan-every", type=int, default=None)
+    p.add_argument("--replan-horizon", type=int, default=100,
+                   help="frames per requested action chunk")
+    p.add_argument("--replan-every", type=int, default=None,
+                   help="re-query the policy every N ticks (default: when a chunk runs out)")
     p.add_argument("--allow-fall", action="store_true", help="keep running after a fall")
     p.add_argument("--plot", type=Path, default=ARTIFACTS / "run.png",
                    help="write trajectory plots here")

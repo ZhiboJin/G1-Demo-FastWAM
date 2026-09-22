@@ -91,24 +91,62 @@ export HF_HOME=$PWD/.cache/huggingface
 
 ```text
 g1demo/
-  contract.py       the 34-D action layout — the single source of truth
-  sonic_params.py   G1 constants extracted from SONIC's C++ deployment
+  contract.py        the 34-D action layout — the single source of truth
+  sonic_params.py    G1 constants, and the joint-order conversions
+  paths.py           where the repos, checkpoints and outputs live
   sonic/
-    encoder.py      motion reference -> 64-D token
-    decoder.py      token + proprioception -> 29 joint actions
-  sim/g1_mujoco.py  mesh-free G1 plant with the deployment's PD gains
-  loop.py           the closed control loop
-  policy.py         FastWAM adapter + scripted stand-in references
-  bridge.py         SONIC reference-clip export for NVIDIA's C++ stack
-  cli.py            command line entry points
+    encoder.py       motion reference -> 64-D token
+    decoder.py       token + proprioception -> 29 joint actions
+  sim/g1_mujoco.py   mesh-free G1 plant with the deployment's PD gains
+  loop.py            the closed control loop
+  policy.py          FastWAM adapter + scripted stand-in references
+  bridge.py          SONIC reference-clip export for NVIDIA's C++ stack
+  download.py        fetches and hash-checks the ONNX graphs
+  cli.py             command line entry points
 configs/
   action_space.json       editable action contract (hand sizes live here)
   fastwam_g1.yaml         FastWAM model config for the G1
   g1_sonic_params.json    generated; do not hand-edit
 tools/extract_sonic_params.py
-tests/
+tests/test_pipeline.py
 docs/
 ```
+
+## Reading guide
+
+The modules are layered so each answers exactly one question. Read in this order
+and you follow the data path from end to end:
+
+| File | Question it answers |
+|---|---|
+| `g1demo/contract.py` | What does FastWAM predict, and which parts bypass SONIC? |
+| `tools/extract_sonic_params.py` | Where do the G1 constants come from? |
+| `g1demo/sonic_params.py` | How do the three joint orderings convert into each other? |
+| `g1demo/sonic/encoder.py` | How does a motion reference become a 64-D token? |
+| `g1demo/sonic/decoder.py` | How does a token become 29 joint actions? |
+| `g1demo/sim/g1_mujoco.py` | What robot is it running on? |
+| `g1demo/loop.py` | What happens in one 50 Hz control tick? |
+| `g1demo/policy.py` | Where does the reference come from? |
+| `g1demo/cli.py` | What can I run? |
+
+`g1demo/loop.py`'s module docstring is the whole pipeline in six lines, so it is
+the fastest place to start.
+
+By task:
+
+| I want to… | Go to |
+|---|---|
+| understand the control path | `g1demo/loop.py` |
+| change the hands or add a joint | `configs/action_space.json`, then `g1demo/contract.py` |
+| change how a reference is encoded | `g1demo/sonic/encoder.py` |
+| debug a joint-ordering problem | `g1demo/sonic_params.py` |
+| understand why balance fails | `docs/sim2sim_gap.md` |
+| drive NVIDIA's own simulator | `g1demo/bridge.py` (`cli bridge-export`) |
+| swap in a trained FastWAM | `g1demo/policy.py` |
+| regenerate constants after a SONIC update | `cli extract-params` |
+
+Style is enforced by `ruff` (`python -m ruff check`), configured in
+`pyproject.toml`.
 
 ## Where the constants come from
 

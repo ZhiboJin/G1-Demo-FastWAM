@@ -9,8 +9,8 @@ download-sonic``); they skip with a clear message when those are absent.
 """
 from __future__ import annotations
 
-import unittest
 import sys
+import unittest
 from pathlib import Path
 
 import numpy as np
@@ -167,13 +167,13 @@ class TestEncoderMath(unittest.TestCase):
     def test_mode_zero_is_not_one_hot(self):
         from g1demo.sonic.encoder import pack_observation
 
-        obs, _, _, _ = pack_observation(default_chunk(), [1, 0, 0, 0], 0.0)
+        obs, _ = pack_observation(default_chunk(), [1, 0, 0, 0], 0.0)
         np.testing.assert_array_equal(obs[0, :4], np.zeros(4))
 
     def test_orientation_is_identity_for_level_robot_at_matching_yaw(self):
         from g1demo.sonic.encoder import pack_observation
 
-        obs, _, _, _ = pack_observation(default_chunk(), [1, 0, 0, 0], 0.0)
+        obs, _ = pack_observation(default_chunk(), [1, 0, 0, 0], 0.0)
         np.testing.assert_allclose(obs[0, 584:590], [1, 0, 0, 1, 0, 0], atol=1e-9)
 
     def test_robot_heading_is_removed_from_the_reference(self):
@@ -182,7 +182,7 @@ class TestEncoderMath(unittest.TestCase):
 
         half = np.pi / 4
         quat = [np.cos(half), 0.0, 0.0, np.sin(half)]
-        obs, _, _, _ = pack_observation(default_chunk(), quat, np.pi / 2)
+        obs, _ = pack_observation(default_chunk(), quat, np.pi / 2)
         np.testing.assert_allclose(obs[0, 584:590], [1, 0, 0, 1, 0, 0], atol=1e-9)
 
     def test_yaw_rate_integrates_across_frames(self):
@@ -191,7 +191,7 @@ class TestEncoderMath(unittest.TestCase):
         c = contract()
         chunk = default_chunk()
         chunk[:, c["root"].slice] = [0.0, 0.0, 1.0]  # 1 rad/s yaw
-        obs, _, _, _ = pack_observation(chunk, [1, 0, 0, 0], 0.0)
+        obs, _ = pack_observation(chunk, [1, 0, 0, 0], 0.0)
         # Sample k of the orientation block sits at OFFSETS[k] control ticks,
         # i.e. OFFSETS[k]/FPS seconds of integrated yaw.
         for k in (1, 3, 7):
@@ -397,11 +397,59 @@ class TestClosedLoop(unittest.TestCase):
         delta_half = results[0.5] - sp.default_angles()
         np.testing.assert_allclose(delta_half, 0.5 * delta_full, rtol=1e-9, atol=1e-12)
 
+    @unittest.skipUnless(HAVE_SONIC, SONIC_SKIP)
+    def test_replan_every_controls_how_often_the_policy_is_queried(self):
+        """Regression: replan_every used to be accepted and then ignored."""
+        from g1demo.loop import WholeBodyController
+        from g1demo.policy import ScriptedReference
+        from g1demo.sim import G1Sim
+
+        class Counting(ScriptedReference):
+            calls = 0
+
+            def actions(self, sim=None, instruction=None):
+                Counting.calls += 1
+                return super().actions(sim, instruction)
+
+        # A 100-frame chunk supports 55 ticks of lookahead, so with no explicit
+        # interval one chunk covers 25 ticks and the policy is asked exactly once.
+        for every, expected in ((None, 1), (5, 5), (10, 3)):
+            Counting.calls = 0
+            WholeBodyController().run(
+                G1Sim(free_base=False),
+                Counting(motion="standing", horizon=100),
+                ticks=25,
+                replan_every=every,
+            )
+            self.assertEqual(Counting.calls, expected, f"replan_every={every}")
+
+    @unittest.skipUnless(HAVE_SONIC, SONIC_SKIP)
+    def test_chunk_shorter_than_the_lookahead_is_rejected(self):
+        from g1demo.loop import WholeBodyController
+        from g1demo.policy import ScriptedReference
+        from g1demo.sim import G1Sim
+
+        class TooShort(ScriptedReference):
+            def actions(self, sim=None, instruction=None):  # noqa: ARG002 (interface)
+                return np.zeros((10, contract().action_dim))
+
+        with self.assertRaises(ValueError):
+            WholeBodyController().run(G1Sim(free_base=False), TooShort(), ticks=1)
+
     def test_rejects_non_sonic_rate(self):
         from g1demo.loop import WholeBodyController
 
         with self.assertRaises(ValueError):
             WholeBodyController(control_hz=30)
+
+    @unittest.skipUnless(HAVE_SONIC, SONIC_SKIP)
+    def test_rejects_non_positive_ticks(self):
+        from g1demo.loop import WholeBodyController
+
+        # The tick-count guard must fire before the simulator is touched, which is
+        # why None is an acceptable stand-in for both sim and source here.
+        with self.assertRaises(ValueError):
+            WholeBodyController(control_hz=50).run(None, None, ticks=0)
 
 
 class TestScriptedReference(unittest.TestCase):

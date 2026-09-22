@@ -23,8 +23,8 @@ same:
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import Iterable
 
 import numpy as np
 
@@ -187,9 +187,3 @@ def q_target_from_action(action_isaaclab: np.ndarray) -> np.ndarray:
     if not np.isfinite(action).all():
         raise ValueError("Decoder action contains NaN or infinity")
     return default_angles() + action[..., params()["isaaclab_to_mujoco"]] * action_scale()
-
-
-def target_saturation(q_target_mujoco: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> np.ndarray:
-    """Boolean mask of joints whose target falls outside ``[lower, upper]``."""
-    target = np.asarray(q_target_mujoco)
-    return (target < np.asarray(lower)) | (target > np.asarray(upper))

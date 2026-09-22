@@ -16,10 +16,10 @@ FastWAM configuration whose action width no longer matches.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Mapping
 
 import numpy as np
 
@@ -123,7 +123,7 @@ class Contract:
         return {
             joint: float(value)
             for group, names in self.joint_groups.items()
-            for joint, value in zip(names, blocks[group])
+            for joint, value in zip(names, blocks[group], strict=True)
         }
 
     def action_names(self) -> list[str]:
@@ -218,13 +218,3 @@ def _load(path: Path) -> Contract:
 def contract(path: Path | None = None) -> Contract:
     """Return the resolved action contract (cached; parsed once per process)."""
     return _load(path or CONTRACT_PATH)
-
-
-def encoder_blocks(c: Contract | None = None) -> tuple[Block, ...]:
-    """Blocks routed through the SONIC encoder."""
-    return tuple(b for b in (c or contract()).blocks if b.route == ROUTE_ENCODER)
-
-
-def bypass_blocks(c: Contract | None = None) -> tuple[Block, ...]:
-    """Blocks that bypass SONIC (the hands)."""
-    return tuple(b for b in (c or contract()).blocks if b.route == ROUTE_BYPASS)

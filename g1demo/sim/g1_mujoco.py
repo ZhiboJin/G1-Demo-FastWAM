@@ -22,8 +22,8 @@ deployment.
 """
 from __future__ import annotations
 
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import numpy as np
 
@@ -284,19 +284,17 @@ class G1Sim:
                 f"Expected {expected} joints, got {self.model.njnt}"
             )
 
-        self._actuator_joint = np.array(
-            [int(self.model.actuator_trnid[i, 0]) for i in range(self.model.nu)]
-        )
         self._pelvis = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis")
         if self._pelvis < 0:
             raise RuntimeError("Could not find the pelvis body in the G1 model")
-        # Map the model's actuator order onto MuJoCo joint order.
-        names = [
-            mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint)
-            for joint in self._actuator_joint
-        ]
+
+        # Map each joint name onto the actuator that drives it. Actuator order is
+        # not guaranteed to match joint order, so look it up rather than assume.
         self._actuator_for = {
-            name: index for index, name in enumerate(names)
+            mujoco.mj_id2name(
+                self.model, mujoco.mjtObj.mjOBJ_JOINT, int(self.model.actuator_trnid[i, 0])
+            ): i
+            for i in range(self.model.nu)
         }
         missing = [name for name in joint_names() if name not in self._actuator_for]
         if missing:
