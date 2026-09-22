@@ -1,0 +1,4 @@
+Metadata for: scripted_reaches
+Body part indexes:
+[0]
+Total timesteps: 200

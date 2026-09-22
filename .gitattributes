@@ -1,0 +1,18 @@
+# Normalise line endings so the repository behaves identically on Windows and Linux.
+# The demo has no binary formats that require CRLF treatment.
+* text=auto eol=lf
+
+*.py   text eol=lf
+*.md   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+
+# Genuine binaries must never be line-ending converted.
+*.npy  binary
+*.npz  binary
+*.onnx binary
+*.pt   binary
+*.png  binary
+*.stl  binary
+*.STL  binary

@@ -1,0 +1,55 @@
+{
+  "controller": "jacobian_ik_pd",
+  "fastwam_inference": false,
+  "sonic_inference": false,
+  "torso_fixed": true,
+  "action_dim": 34,
+  "action_slices": {
+    "left_arm": [
+      0,
+      7
+    ],
+    "left_end_effector": [
+      7,
+      8
+    ],
+    "right_arm": [
+      8,
+      15
+    ],
+    "right_end_effector": [
+      15,
+      16
+    ],
+    "left_leg": [
+      16,
+      22
+    ],
+    "right_leg": [
+      22,
+      28
+    ],
+    "waist": [
+      28,
+      31
+    ],
+    "root": [
+      31,
+      34
+    ]
+  },
+  "results": [
+    {
+      "task": "touch_left_target",
+      "distance_m": 0.01152070451877202,
+      "best_distance_m": 0.00027258577164529605,
+      "success_at_5cm": true
+    },
+    {
+      "task": "touch_right_target",
+      "distance_m": 0.0017117708532717669,
+      "best_distance_m": 0.0011091307761248303,
+      "success_at_5cm": true
+    }
+  ]
+}

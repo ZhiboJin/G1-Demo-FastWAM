@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv*/
+venv/
+*.egg-info/
+
+# Pretrained SONIC graphs: ~200 MB, re-downloadable from Hugging Face.
+# Fetch them with `python scripts/download_sonic_checkpoints.py`
+# (or the SONIC repo's own `download_from_hf.py`).
+checkpoints/
+
+# Generated, machine-specific. Contains machine-resolved absolute paths
+# (e.g. the sibling FastWAM ActionDiT checkpoint). Regenerate with:
+#   python scripts/build_g1_architecture.py
+configs/fastwam_g1_resolved.json
+
+# Generated run artefacts. Regenerate with the documented commands.
+artifacts/model_verification.json
+artifacts/closedloop_verification.json
+artifacts/closedloop_outputs.npz
+artifacts/decoded_action.npy
+artifacts/tiny_action_dit_UNTRAINED.pt
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,12 @@
+{
+  "source_action_shape": [
+    200,
+    34
+  ],
+  "fps": 50,
+  "root_height_m": 0.793,
+  "root_policy": "fixed XY; roll/pitch absolute; integrate yaw rate",
+  "sonic_mode": "joint reference CSV; encoder mode 0",
+  "hands": "sidecar only; not controlled by this SONIC reference",
+  "action_origin": "scripted_ik"
+}
