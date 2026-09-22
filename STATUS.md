@@ -163,11 +163,13 @@ Sources checked:
 - `configs/fastwam_g1_resolved.json`: generated production architecture settings.
 - `artifacts/model_verification.json`: verification result and encoder hash.
 
-Reproduce from `C:\Users\Justin\Desktop\pjt\fastwam_g1_demo`:
+Reproduce from the repository root (paths here are relative, so this works on the
+Linux machine too — see [LINUX_SETUP.md](LINUX_SETUP.md)):
 
-```powershell
-.venv-model/Scripts/python.exe scripts/verify_model.py
-.venv-model/Scripts/python.exe scripts/encode_sonic.py --actions artifacts/scripted_actions.npy --robot-quat 1 0 0 0 --reference-yaw 0 --out artifacts/sonic_packet.npz
+```bash
+python scripts/verify_model.py
+python scripts/encode_sonic.py --actions artifacts/scripted_actions.npy --robot-quat 1 0 0 0 --reference-yaw 0 --out artifacts/sonic_packet.npz
+python scripts/verify_decoder.py
 ```
 
 If continuing architecture work, first review the implementation and the above
@@ -228,12 +230,13 @@ not in the sibling SONIC checkout. The base Python environment remains unchanged
 
 ## Reproduce verification
 
-```powershell
-cd C:\Users\Justin\Desktop\pjt\fastwam_g1_demo
+```bash
+# from the repository root
 python scripts/validate_contract.py
 python scripts/action_adapter.py
 python scripts/run_demo.py --task both --out artifacts/run.json
 python scripts/sonic_bridge.py --actions artifacts/scripted_actions.npy --out artifacts/sonic_reference/scripted_reaches --origin scripted_ik
 python scripts/verify_bridge.py
 python scripts/play_sonic_reference.py --clip artifacts/sonic_reference/scripted_reaches
+python scripts/verify_decoder.py
 ```
