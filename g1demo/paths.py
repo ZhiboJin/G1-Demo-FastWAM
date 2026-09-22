@@ -88,6 +88,29 @@ def sonic_repo() -> Path:
     )
 
 
+def menagerie_repo() -> Path:
+    """google-deepmind/mujoco_menagerie checkout (the real G1 with meshes).
+
+    NVIDIA's G1 MJCF ships its STL files as Git-LFS pointers, so a normal clone
+    cannot render it. Menagerie carries the same robot with the meshes committed.
+    """
+    return _resolve(
+        "MENAGERIE_REPO",
+        [
+            ROOT / "third_party/mujoco_menagerie",
+            ROOT.parent / "third_party/mujoco_menagerie",
+            ROOT.parent / "mujoco_menagerie",
+        ],
+        "unitree_g1/scene.xml",
+        "the MuJoCo Menagerie checkout",
+    )
+
+
+def menagerie_g1_scene() -> Path:
+    """The Menagerie Unitree G1 scene: real meshes, contacts and lighting."""
+    return menagerie_repo() / "unitree_g1/scene.xml"
+
+
 def sonic_params_path() -> Path:
     return CONFIGS / "g1_sonic_params.json"
 

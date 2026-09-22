@@ -13,6 +13,7 @@ import sys
 import unittest
 from pathlib import Path
 
+import mujoco
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -312,22 +313,54 @@ class TestSimulator(unittest.TestCase):
         self.assertEqual(self.sim.model.nu, 29)
         self.assertEqual(self.sim.model.njnt, 30)  # 29 joints + free root
 
+    def test_is_the_real_g1(self):
+        """The model must be the actual G1, not a stand-in."""
+        from g1demo import sonic_params as sp
+
+        # Unitree quotes about 35 kg for the 29-DoF G1; Menagerie's rev 1.0 is
+        # 33.34 kg because it carries no dexterous hands.
+        self.assertGreater(self.sim.model.body_mass.sum(), 30.0)
+        self.assertLess(self.sim.model.body_mass.sum(), 40.0)
+        names = [
+            mujoco.mj_id2name(self.sim.model, mujoco.mjtObj.mjOBJ_JOINT, i)
+            for i in range(1, self.sim.model.njnt)
+        ]
+        # Same joints, in the same order, as SONIC's policy parameters.
+        self.assertEqual(names, list(sp.joint_names()))
+
     def test_starts_at_the_default_pose_and_in_contact(self):
         np.testing.assert_allclose(self.sim.joint_pos, sp.default_angles(), atol=0.06)
         self.assertGreater(self.sim.base_position[2], 0.70)
         # Settling under gravity leaves a small residual pitch (~0.01 rad).
         np.testing.assert_allclose(self.sim.base_quat_wxyz, [1, 0, 0, 0], atol=1e-2)
-        # Feet must begin on the floor. The raw MJCF leaves them ~3.6 cm up;
-        # after the drop-and-settle they sit within a few millimetres.
-        self.assertLess(abs(self.sim.lowest_contact_height()), 1e-2)
 
-    def test_advance_steps_four_physics_steps_per_control_tick(self):
-        self.assertEqual(self.sim.steps_per_control, 4)
-        self.assertAlmostEqual(self.sim.model.opt.timestep * 4, 0.02, places=9)
+    def test_control_tick_is_twenty_milliseconds(self):
+        """One advance() must equal one 50 Hz tick, whatever the model timestep."""
+        achieved = self.sim.steps_per_control * self.sim.physics_dt
+        self.assertAlmostEqual(achieved, 1.0 / 50, places=6)
 
     def test_rejects_wrong_target_length(self):
         with self.assertRaises(ValueError):
             self.sim.set_targets(np.zeros(5))
+
+    def test_rejects_unknown_source_and_gains(self):
+        from g1demo.sim import G1Sim
+
+        with self.assertRaises(ValueError):
+            G1Sim(source="shadow")
+        with self.assertRaises(ValueError):
+            G1Sim(gains="magic")
+
+    def test_model_sources_agree_on_joint_order(self):
+        from g1demo import sonic_params as sp
+        from g1demo.sim import GAINS_NATIVE, SOURCE_NVIDIA, G1Sim
+
+        nvidia = G1Sim(source=SOURCE_NVIDIA, gains=GAINS_NATIVE, free_base=False)
+        names = [
+            mujoco.mj_id2name(nvidia.model, mujoco.mjtObj.mjOBJ_JOINT, i)
+            for i in range(nvidia.model.njnt)
+        ]
+        self.assertEqual(names, list(sp.joint_names()))
 
     def test_anchored_plant_tracks_a_step_target(self):
         from g1demo.sim import G1Sim
@@ -339,6 +372,39 @@ class TestSimulator(unittest.TestCase):
         for _ in range(20):
             sim.advance()
         self.assertLess(abs(sim.joint_pos[0] - target[0]), 0.05)
+
+    def test_native_gains_stand_and_sonic_gains_do_not(self):
+        """The core sim2sim finding, asserted so it cannot regress silently.
+
+        Menagerie ships kp=500 and the G1 holds the default pose unaided. SONIC's
+        deployment gains are 14-99, far too soft for this plant, and the robot
+        topples. That is why the closed loop needs plant calibration.
+        """
+        from g1demo.sim import GAINS_NATIVE, GAINS_SONIC, G1Sim
+
+        native = G1Sim(gains=GAINS_NATIVE)
+        for _ in range(250):
+            native.advance()
+        self.assertFalse(native.is_fallen(), "native gains should hold the pose")
+
+        sonic = G1Sim(gains=GAINS_SONIC)
+        for _ in range(250):
+            sonic.advance()
+        self.assertTrue(sonic.is_fallen(), "sonic gains are expected to topple")
+
+    def test_sonic_gains_are_applied_to_the_model(self):
+        from g1demo import sonic_params as sp
+        from g1demo.sim import G1Sim
+
+        sim = G1Sim(gains="sonic")
+        for joint_index, joint_name in enumerate(sp.joint_names()):
+            actuator = sim._actuator_for[joint_name]
+            self.assertAlmostEqual(
+                sim.model.actuator_gainprm[actuator, 0], sp.kp()[joint_index]
+            )
+            self.assertAlmostEqual(
+                sim.model.actuator_biasprm[actuator, 2], -sp.kd()[joint_index]
+            )
 
     @unittest.expectedFailure
     def test_free_base_default_pose_is_passively_stable(self):

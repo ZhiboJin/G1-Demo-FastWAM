@@ -122,11 +122,35 @@ element-wise in the test suite).
 
 ## Plant
 
-`g1demo/sim/g1_mujoco.py` rebuilds the official G1 MJCF without its LFS meshes. The
-visual meshes upstream are `contype=0`; the only colliding geometry is four small
-spheres per foot, which are primitives and survive untouched. Actuators are
-position servos with the deployment's `kp`/`kd`, so the torque law matches
-`kp*(q_target - q) - kd*qdot`.
+`g1demo/sim/g1_mujoco.py` offers two G1 models, selected with `--source`:
+
+* **`menagerie`** (default) — the official Unitree G1 29-DoF rev 1.0 from MuJoCo
+  Menagerie. Real collision meshes, 33.3 kg, a checkered scene. This is a real G1
+  to look at and the reference for behaviour.
+* **`nvidia`** — a rebuild of the MJCF shipped inside GEAR-SONIC. Its STL files
+  are Git-LFS pointers, so a plain clone cannot load it. The rebuild keeps the
+  kinematic tree, inertias, joint limits, and the four foot contact spheres that
+  are upstream's only colliding geometry, and replaces the visual meshes with
+  primitives. It renders as a stick figure.
+
+Both expose the 29 actuators in the same joint order as
+`configs/g1_sonic_params.json`, so neither needs a permutation.
+
+`--model-gains` selects the servos:
+
+* **`sonic`** (default) — overwrites the model's actuators with the `kp`/`kd`
+  from SONIC's C++ header, i.e. what the real robot is actually commanded with.
+* **`native`** — keeps the model's own servos (Menagerie ships `kp=500`).
+
+Either way the torque law matches the deployment's:
+
+```
+torque = kp * (q_target - q) - kd * qdot
+```
+
+The substep count is derived from the model's own `opt.timestep`, never assumed:
+a mismatch there silently changes the control rate and invalidates every timing in
+SONIC's 50 Hz reference window.
 
 ## Loop
 

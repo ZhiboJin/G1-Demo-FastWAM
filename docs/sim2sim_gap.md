@@ -6,27 +6,37 @@ and so nothing here is mistaken for a validated result.
 
 ## Summary
 
-The Python chain is correct. The **plant** is not yet a faithful stand-in for
+The Python chain is correct. The **plant** is not a faithful stand-in for
 IsaacLab, and the SONIC decoder was trained against IsaacLab. At the deployment's
-nominal gain the closed loop diverges and the robot falls. At an effective gain of
-0.5 it stands for the full run.
+nominal gain the closed loop diverges and the robot falls. It stands for the full
+run only once the effective action gain is reduced.
+
+All figures below are on the **real G1** (MuJoCo Menagerie, Unitree G1 29-DoF
+rev 1.0, 33.3 kg), free base, standing reference, 250 ticks = 5 s at 50 Hz.
 
 | Data | Value |
 |---|---|
-| Control tick 0, free base | `max abs action = 0.437`, matching the open-loop prediction exactly |
+| Control tick 0 | `max abs action = 0.437`, matching the open-loop prediction exactly |
 | Tick 0 `q_target - default_angles` | max `0.153 rad`, 0/29 joints saturated |
-| Free base, standing reference, gain 1.0 | falls at tick 82 (1.64 s), `max abs action 12.5`, 10.7% saturation |
-| Free base, standing reference, gain 0.5 | **stands for 250 ticks (5.0 s)**, settles at `0.758 m`, mean tracking error `0.058 rad`, **0.0% saturation** |
-| Free base, standing reference, gain 0.25 | falls at tick 109 |
-| Plant holding the default pose with no policy | topples in < 1 s |
-| Gain needed for the plant to hold the default pose | roughly **8×** the shipped `kp`/`kd` |
+| SONIC gains, action gain 1.0 | falls at tick 56 (1.1 s), 11.2% saturation |
+| SONIC gains, action gain **0.5** | **stands 250 ticks**, mean tracking error `0.056 rad`, **0.0% saturation** |
+| SONIC gains, action gain 0.35 | stands 250 ticks, `0.061 rad` |
+| Native gains (kp=500), action gain 1.0 | falls at tick 44 |
+| Native gains (kp=500), action gain **0.25** | **stands 250 ticks**, mean tracking error `0.007 rad` |
+| Plant holding the default pose, no policy, SONIC gains | topples in < 1 s |
+| Plant holding the default pose, no policy, native gains | stable (settles to `0.754 m`, 3 mm drift) |
+
+Two things follow. The plant's own stiffness changes how much the decoder's
+output must be attenuated, and a stiffer plant tolerates a *lower* gain, not a
+higher one — consistent with the loop being gain-limited rather than
+torque-limited.
 
 Reproduce:
 
 ```bash
-python -m g1demo.cli gain-sweep --motion standing --ticks 250
-python -m g1demo.cli demo --motion standing --action-gain 0.5 --ticks 250 --plot artifacts/run.png
-python -m unittest tests.test_pipeline.TestSimulator
+python -m g1demo.cli gain-sweep --source menagerie --model-gains sonic  --ticks 250
+python -m g1demo.cli gain-sweep --source menagerie --model-gains native --ticks 250
+python -m g1demo.cli demo --source menagerie --model-gains sonic --action-gain 0.5
 ```
 
 ## What is *not* the cause
@@ -42,16 +52,17 @@ explanation credible.
 | Mode indicator should be one-hot | read `GatherEncoderMode` | it is `[mode, 0, 0, 0]`; zero-filling mode 0 is correct |
 | `last_actions` should be scaled | read `CreatePolicyCommand()` | it is the raw normalized output in IsaacLab order |
 | Decoder history should be absolute joint angles | read `state_logger.cpp:296` | it is relative to `default_angles`; implemented that way |
-| Relative pose is statically unstable | project the CoM | CoM `x = 0.029` lies inside the foot span `[-0.051, 0.119]` |
-| Model mass is wrong | `body_mass.sum()` | `35.1 kg`, matching the real G1 |
+| Relative pose is statically unstable | project the CoM | CoM `x = 0.029` lies inside the foot span |
+| Model mass is wrong | `body_mass.sum()` | `33.3 kg` (Menagerie) / `35.1 kg` (NVIDIA MJCF), both G1-plausible |
 | Physics timestep too coarse | sweep 1–5 ms × Euler/implicitfast | identical outcome at every setting |
 | Contact geometry too point-like | replace foot spheres with a sole box | did not help; moved the standing height off nominal |
 | Integrator choice | Euler vs `implicitfast` | neither stabilises it |
 | Hidden motor gain scaling | `apply_motor_gain_scales` | defaults are `nullopt`; no scaling applied |
+| Wrong model | run both independent G1 models | both behave the same way; the effect is gains, not geometry |
 
 ## The two real findings
 
-### 1. The MuJoCo plant cannot hold the default pose passively
+### 1. At SONIC's gains the plant cannot hold the default pose passively
 
 Commanding `q_target = default_angles` and nothing else, the robot topples within
 about a second. Tracking the mechanism:
@@ -63,24 +74,42 @@ t=1.00s  h=0.041  pitch=+1.493  fallen
 ```
 
 The ankle pitch sags under the ground-reaction moment, the body pitches forward,
-the CoM moves further ahead of the ankle, and the sag runs away. The `P` term is
-what resists it, so the equilibrium is only stable if `kp_ankle` is large enough —
-and the shipped value (`28.5 N·m/rad`, i.e. `2 × STIFFNESS_5020`) is not, for this
-model. Roughly 8× the shipped gains are needed before the plant stands on its own.
+the CoM moves ahead of the ankle, and the sag runs away. A `P` term is what
+resists it, so the joint is only stable if `kp_ankle` is large enough.
 
-This is *not* evidence that the gains are wrong: the real robot is balanced by the
-policy, which learns to command the offset that holds the pose. It is evidence that
-the plant and the training plant differ enough that the learned offset does not
-transfer.
+Measuring the torque the real G1 actually needs to stand, and the sag that torque
+implies at SONIC's gains:
 
-### 2. Effective loop gain is about 2× too high
+| Joint | Torque to stand | Sag at SONIC kp | Sag at Menagerie kp=500 |
+|---|---|---|---|
+| knee | 10.9 N·m | 0.110 rad | 0.022 rad |
+| ankle pitch | 5.6 N·m | 0.196 rad | 0.011 rad |
 
-At gain 1.0 the decoded action drives the plant into divergence, with `|action|`
-growing to ~15. Halving the applied action makes the same loop stand for the full
-5 s. Since the decoder's *outputs* are identical in both cases, the difference is
-purely how the plant responds — consistent with MuJoCo's ideal position servos
-being much stiffer and faster than IsaacLab's actuator model, which applies effort
-limits, velocity limits and a first-order lag.
+At 0.196 rad of ankle sag the CoM passes the support polygon and the robot goes
+over. Menagerie's own `kp=500` holds it. So this is a **gain** mismatch, not a
+geometry, mass or contact bug — and running the same test on either G1 model
+gives the same answer.
+
+This is *not* evidence the deployment gains are wrong. On the real robot the
+policy commands an offset to compensate, and the ankle has the headroom: 5.6 N·m
+needed against a 25 N·m limit. It is evidence that the learned offset does not
+transfer to this plant.
+
+### 2. The plant's stiffness sets how much the decoder output must be attenuated
+
+At action gain 1.0 the decoder drives the plant into divergence and `|action|`
+grows to ~15. The decoder's *outputs* are identical whatever the plant; only the
+response differs. And the stiffer the plant, the *lower* the usable gain:
+
+| Plant servos | Gain that stands |
+|---|---|
+| SONIC kp (14–99) | 0.5 |
+| Menagerie kp=500 | 0.25 |
+
+A stiffer plant needing a *smaller* action scale is the signature of a
+gain-limited loop, not a torque-limited one: MuJoCo's ideal position servos have
+no actuator lag or velocity limit, so the loop has more gain and less phase margin
+than the IsaacLab actuators the policy was trained against.
 
 ## Why this is not surprising
 

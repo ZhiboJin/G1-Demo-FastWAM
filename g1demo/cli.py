@@ -20,6 +20,13 @@ import numpy as np
 from .contract import contract
 from .paths import ARTIFACTS, ROOT
 from .policy import ScriptedReference
+from .sim.g1_mujoco import (
+    GAINS_NATIVE,
+    GAINS_SONIC,
+    SOURCE_MENAGERIE,
+    SOURCE_NVIDIA,
+    G1Sim,
+)
 from .sonic.decoder import INPUT_DIM as DECODER_INPUT_DIM
 from .sonic.decoder import NUM_FRAMES, SonicDecoder
 from .sonic.encoder import INPUT_DIM as ENCODER_INPUT_DIM
@@ -331,10 +338,9 @@ def _write_plots(records, summary, path: Path, control_hz: int) -> str:
 
 def cmd_demo(args) -> int:
     from .loop import WholeBodyController, joint_error_table
-    from .sim.g1_mujoco import G1Sim
 
     free_base = args.mode == "free"
-    sim = G1Sim(free_base=free_base)
+    sim = G1Sim(source=args.source, gains=args.model_gains, free_base=free_base)
     controller = WholeBodyController(action_gain=args.action_gain)
     source = ScriptedReference(
         motion=args.motion,
@@ -366,6 +372,8 @@ def cmd_demo(args) -> int:
 
     payload = {
         "mode": "free_base" if free_base else "anchored",
+        "model_source": args.source,
+        "model_gains": args.model_gains,
         "motion": args.motion,
         "amplitude": args.amplitude,
         "controller": "SONIC v1.1 encoder -> 64-D token -> SONIC v1.1 decoder -> PD targets",
@@ -411,6 +419,7 @@ def cmd_demo(args) -> int:
     out.write_text(json.dumps(payload, indent=2) + "\n")
 
     print(f"mode            {payload['mode']}")
+    print(f"model           {args.source}  (gains: {args.model_gains})")
     print(f"motion          {args.motion}  (source: {source.name})")
     print(f"action gain     {summary.action_gain}")
     print(f"ticks           {summary.ticks}  "
@@ -446,11 +455,11 @@ def cmd_gain_sweep(args) -> int:
     so 1.0 over-drives the balance loop. See docs/sim2sim_gap.md.
     """
     from .loop import WholeBodyController
-    from .sim.g1_mujoco import G1Sim
 
     rows = []
-    for gain in args.gains:
-        sim = G1Sim(free_base=args.mode == "free")
+    for gain in args.action_gains:
+        sim = G1Sim(source=args.source, gains=args.model_gains,
+                    free_base=args.mode == "free")
         controller = WholeBodyController(action_gain=gain)
         summary, _ = controller.run(
             sim, ScriptedReference(motion=args.motion, horizon=300), ticks=args.ticks
@@ -525,6 +534,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--motion", choices=MOTIONS, default="standing")
     p.add_argument("--mode", choices=("free", "anchored"), default="free",
                    help="free base (whole-body balance) or pelvis welded to the world")
+    p.add_argument("--source", choices=(SOURCE_MENAGERIE, SOURCE_NVIDIA),
+                   default=SOURCE_MENAGERIE,
+                   help="menagerie: the real G1 with meshes; nvidia: mesh-free rebuild")
+    p.add_argument("--model-gains", choices=(GAINS_SONIC, GAINS_NATIVE),
+                   default=GAINS_SONIC,
+                   help="sonic: the deployment's kp/kd; native: the model's own servos")
     p.add_argument("--ticks", type=int, default=250)
     p.add_argument("--action-gain", type=float, default=1.0,
                    help="1.0 is NVIDIA's convention; see docs/sim2sim_gap.md")
@@ -548,7 +563,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--motion", choices=MOTIONS, default="standing")
     p.add_argument("--mode", choices=("free", "anchored"), default="free")
     p.add_argument("--ticks", type=int, default=250)
-    p.add_argument("--gains", type=float, nargs="+", default=[1.0, 0.75, 0.5, 0.35, 0.25])
+    p.add_argument("--action-gains", type=float, nargs="+",
+                   default=[1.0, 0.75, 0.5, 0.35, 0.25],
+                   help="decoder-output gains to sweep")
+    p.add_argument("--source", choices=(SOURCE_MENAGERIE, SOURCE_NVIDIA),
+                   default=SOURCE_MENAGERIE)
+    p.add_argument("--model-gains", choices=(GAINS_SONIC, GAINS_NATIVE),
+                   default=GAINS_SONIC)
     p.set_defaults(func=cmd_gain_sweep)
 
     p = sub.add_parser("bridge-export",

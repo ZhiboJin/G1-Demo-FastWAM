@@ -9,9 +9,9 @@ venv/
 # Fetch them with `python -m g1demo.cli download-sonic`.
 checkpoints/
 
-# Generated from the official G1 MJCF on demand. Regenerate with:
-#   python -c "from g1demo.sim import build_model; build_model()"
-assets/g1_meshfree.xml
+# Generated MJCF variants, built from the source models on demand:
+#   python -c "from g1demo.sim import nvidia_meshfree_model; nvidia_meshfree_model()"
+assets/g1_*.xml
 
 # Run outputs: plots, reports and exported reference clips. Regenerate with
 # the documented `python -m g1demo.cli ...` commands. `artifacts/*` rather than

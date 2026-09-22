@@ -1,10 +1,28 @@
 """Simulation backends.
 
 ``g1_mujoco``
-    A MuJoCo G1 built from NVIDIA's official MJCF, actuated with the same PD
-    gains the SONIC deployment commands.
+    Two G1 models — the real one from MuJoCo Menagerie (default) and a mesh-free
+    rebuild of NVIDIA's — driven with the SONIC deployment's PD gains.
 """
 
-from .g1_mujoco import CONTROL_HZ, G1Sim, build_model
+from .g1_mujoco import (
+    CONTROL_HZ,
+    GAINS_NATIVE,
+    GAINS_SONIC,
+    SOURCE_MENAGERIE,
+    SOURCE_NVIDIA,
+    G1Sim,
+    menagerie_model,
+    nvidia_meshfree_model,
+)
 
-__all__ = ["CONTROL_HZ", "G1Sim", "build_model"]
+__all__ = [
+    "CONTROL_HZ",
+    "GAINS_NATIVE",
+    "GAINS_SONIC",
+    "SOURCE_MENAGERIE",
+    "SOURCE_NVIDIA",
+    "G1Sim",
+    "menagerie_model",
+    "nvidia_meshfree_model",
+]

@@ -59,11 +59,33 @@ Full detail, measurements and the fix path: [`docs/sim2sim_gap.md`](docs/sim2sim
 | Artefact | What it shows |
 |---|---|
 | `artifacts/standing.mp4` | the G1 holding a standing reference for 5 s under SONIC control (gain 0.5) |
-| `artifacts/standing_gain1.0.mp4` | the same run at NVIDIA's nominal gain — falls at 1.6 s |
+| `artifacts/standing_gain1.0.mp4` | the same run at NVIDIA's nominal gain — falls at 1.1 s |
 | `artifacts/standing_gain0.5.png` | pelvis height, decoder output, tracking error, commanded targets |
 | `artifacts/standing_gain0.5_token.png` | the 64-D FSQ token the encoder produced |
 
 Rendered on the laptop GPU with `MUJOCO_GL=egl` (use `glfw` when a display exists).
+
+## Which G1
+
+Two models are wired in, selected with `--source`:
+
+| `--source` | What it is |
+|---|---|
+| `menagerie` (default) | the official **Unitree G1 29-DoF rev 1.0** from MuJoCo Menagerie — real collision meshes, 33.3 kg, checkered scene. This is a real G1. |
+| `nvidia` | a rebuild of the MJCF shipped inside GEAR-SONIC. Its STLs are Git-LFS pointers, so a plain clone cannot load it; the rebuild keeps the kinematics, inertias, limits and foot contact spheres and replaces the meshes with primitives. It renders as a stick figure. |
+
+Both expose the 29 actuators in the same order as SONIC's policy parameters, so
+neither needs a permutation.
+
+`--model-gains` picks the servos:
+
+| `--model-gains` | kp | Result unaided |
+|---|---|---|
+| `sonic` (default) | 14–99, from SONIC's C++ header | topples — too soft to hold the pose |
+| `native` | 500, Menagerie's own | stands |
+
+That difference is the substance of the sim2sim gap: the policy was trained
+against a plant it cannot stabilise here without calibration.
 
 **Compute reality.** CUDA works here, so the simulation renders on the GPU. The
 7.5 GiB of VRAM is *not* enough for FastWAM itself: it is a ~6 B parameter model,
@@ -83,20 +105,28 @@ access. That is not a driver fault: the same commands work in a normal shell.
 python3 -m venv --system-site-packages .venv-model
 .venv-model/bin/pip install -r requirements.txt
 
-# 2. Pretrained SONIC v1.1 encoder + decoder (~200 MB, public, ungated).
+# 2. The real G1 (MuJoCo Menagerie, ~35 MB of meshes, including Git-LFS blobs).
+#    Clone it anywhere and point MENAGERIE_REPO at it, or drop it in third_party/:
+git clone --depth 1 https://github.com/google-deepmind/mujoco_menagerie.git \
+    third_party/mujoco_menagerie
+
+# 3. Pretrained SONIC v1.1 encoder + decoder (~200 MB, public, ungated).
 #    If ~/.cache is not writable, keep Hugging Face's cache in the repo:
 export HF_HOME=$PWD/.cache/huggingface
 .venv-model/bin/python -m g1demo.cli download-sonic
 
-# 3. Verify the contract and the SONIC chain (no physics, no GPU)
+# 4. Verify the contract and the SONIC chain (no physics, no GPU)
 .venv-model/bin/python -m g1demo.cli verify          # 16/16 checks
 
-# 4. Closed-loop simulation (add MUJOCO_GL=egl --video to record it)
+# 5. Closed-loop simulation (add MUJOCO_GL=egl --video to record it)
 .venv-model/bin/python -m g1demo.cli demo --motion standing --action-gain 0.5
 
-# 5. Tests
+# 6. Tests
 .venv-model/bin/python -m unittest discover -s tests
 ```
+
+Path resolution lives in `g1demo/paths.py`. `MENAGERIE_REPO`, `SONIC_REPO` and
+`FASTWAM_REPO` all override the default sibling/`third_party` locations.
 
 ## Commands
 
