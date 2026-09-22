@@ -1,139 +1,140 @@
-# FastWAM × Unitree G1 simulation demo
+# FastWAM × Unitree G1 — whole-body control through SONIC
 
-## Model architecture and real SONIC encoder (new)
-
-The G1 FastWAM factory and SONIC v1.1 encoder integration are now implemented.
-FastWAM uses 29 named joint channels, configurable left/right hand channels
-(currently one each), and the existing three root-orientation channels: 34 total.
-The hand channels bypass the encoder. The actual downloaded NVIDIA encoder/FSQ
-produces 64-value tokens; a sample is saved in `artifacts/sonic_packet.npz`.
-Read [the implemented model architecture](docs/model_architecture.md) for exact
-semantics, code entry points, reference timing and reproducible commands.
-
-This is architecture/interface validation, not a trained FastWAM G1 policy.
-The original simulation below still uses scripted IK. Full-size FastWAM weights,
-G1 training, and closed-loop C++ SONIC controller execution have not been performed.
-
-## SONIC decoder and the complete token chain (new)
-
-Both halves of the pretrained SONIC v1.1 path now run in Python. The decoder graph
-(`checkpoints/sonic_v1_1/model_decoder.onnx`, 150 MB) was added along with
-`scripts/sonic_decoder.py`, a symmetric CLI `scripts/decode_sonic.py`, and
-`scripts/verify_decoder.py`, which executes encoder and decoder in sequence over 31
-control ticks and passes 16/16 checks. `G1Policy` now exposes `decode_at()` and a
-composite `step()`:
+Deploying **FastWAM** (a world-action model) onto a **Unitree G1** humanoid, using
+NVIDIA's **SONIC** (GEAR-SONIC) controller as the whole-body execution layer, and
+demonstrating the chain in MuJoCo.
 
 ```text
-predict -> [T,34] physical actions -> encode_at -> 64-D token + hands
-                                   -> decode_at -> [1,29] joint action
+     instruction + cameras + proprioception
+                     │
+                 FastWAM                      predicts an action chunk
+                     │
+             [T, 34] physical references
+             ├──────────────────────────────┐
+             │ 29 body joints + 3 root      │  left / right hand commands
+             ▼                              ▼
+   SONIC v1.1 encoder  (incl. FSQ)      BYPASSED by SONIC
+             │
+      64-D whole-body token
+             │
+   SONIC v1.1 decoder
+             │
+      29 joint actions  (IsaacLab order)
+             │
+   q_target = default_angles + action * scale      ← NVIDIA's convention
+             │
+      Unitree G1  (50 Hz position PD)
 ```
 
-The 994-value decoder observation is derived from official source, not guessed; see
-[the decoder section](docs/model_architecture.md#decoder-observation-994-values).
-**The decoded action magnitudes are not yet validated** — output reaches
-`|action| ~ 9 rad` on out-of-distribution scripted references, so the C++ convention
-`q_target = default_angles + action * scale` still needs the official Linux sim2sim
-to confirm. Do not treat the decoded action as a verified motor command.
+The hands bypass SONIC because its graphs have no hand inputs or outputs. In
+NVIDIA's own deployment the dexterous-hand commands travel on a separate channel
+and never enter the policy.
 
-```powershell
-.venv-model/Scripts/python.exe scripts/verify_decoder.py
-```
+## Status — read this first
 
+| Piece | State |
+|---|---|
+| 34-D action contract, joint ordering, limits | **Working**, verified against NVIDIA's source |
+| SONIC v1.1 encoder (1751 → 64, incl. FSQ) | **Working** — real released ONNX graph |
+| SONIC v1.1 decoder (994 → 29) | **Working** — real released ONNX graph |
+| `q_target = default + action * scale` convention | **Resolved from source**; previously an open question |
+| MuJoCo G1 plant with the deployment's PD gains | **Working**, but see the limitation below |
+| Closed loop, free base | **Runs**; stable for the full 5 s run at reduced effective gain |
+| FastWAM → G1 inference | **Not possible yet** — upstream has released no G1 checkpoint |
 
-This folder is a **runnable MuJoCo task and action-contract baseline**, plus a staged path to a trained FastWAM humanoid policy. The current controller is Jacobian IK, **not FastWAM or SONIC inference**. It reaches two visual targets with the left and right G1 wrists. The torso is fixed to make the first manipulation milestone reproducible without a balance policy. See [STATUS.md](STATUS.md) before continuing.
+**The honest limitation.** Driving the SONIC decoder against a MuJoCo G1 built
+from NVIDIA's shipped MJCF does not balance at the deployment's nominal gain. The
+MuJoCo plant is much stiffer than the IsaacLab plant the policy was trained
+against, so at gain 1.0 the loop diverges and the robot falls, while at an
+effective gain of 0.5 it stands for the full 5 s run. Separately, the MuJoCo plant
+cannot even hold the default pose passively: the ankle sags under the
+ground-reaction moment until the body pitches over. Both are *plant fidelity*
+problems, not convention problems — the first control tick matches the open-loop
+prediction exactly, and every tensor layout has been checked against the C++.
 
-## Run the first demo
+Full detail, measurements and the fix path: [`docs/sim2sim_gap.md`](docs/sim2sim_gap.md).
 
-From this folder on the present machine (Python 3.13 with `mujoco` and `numpy` already installed):
-
-```powershell
-python scripts/run_demo.py --task both --out artifacts/run.json
-```
-
-Use `--task left` or `--task right` for individual tasks. The command writes `artifacts/demo.png` with snapshots of both completed reaches. Add `--viewer` for the interactive MuJoCo viewer. Install `requirements-demo.txt` in a clean environment if needed. The script generates `assets/g1_meshfree.xml` from the existing local NVIDIA G1 model at `../GR00T-WholeBodyControl-main/GR00T-WholeBodyControl-main/gear_sonic/data/robots/g1/g1_29dof_old.xml`. The generated model preserves G1 joints, axes, limits, body transforms, and inertias, while replacing unavailable LFS meshes with simple visual capsules. It is an approximation and is not suitable for sim-to-real metrics. The generated file and rollout are reproducible artifacts; the upstream XML remains the authoritative model.
-
-## Action contract
-
-`configs/action_space.json` is the single place to edit dimensions. It exposes all 29 G1 joints plus two editable end-effector blocks and a three-value root command, matching the **34-value OpenHLM-style ordering**. `end_effectors.left.size` and `end_effectors.right.size` are explicitly marked `EDIT_ME`; currently each is `1` (a gripper placeholder). Change them for your actual hands, then rerun `python scripts/validate_contract.py`. The simulator demo consumes joint positions only; it does not pretend the placeholder grippers or root command are physically actuated.
-
-## FastWAM action → SONIC reference bridge
-
-The demo writes **script-generated** `[200,34]` actions to `artifacts/scripted_actions.npy` so the interface can be exercised before G1 FastWAM training. The bridge accepts the same `.npy` shape from a future FastWAM G1 inference run:
-
-```powershell
-python scripts/sonic_bridge.py --actions artifacts/scripted_actions.npy --out artifacts/sonic_reference/scripted_reaches --origin scripted_ik
-python scripts/verify_bridge.py
-python scripts/play_sonic_reference.py --clip artifacts/sonic_reference/scripted_reaches
-```
-
-The converter validates names and limits against the **G1 URDF** in the local SONIC checkout, applies SONIC's own IsaacLab joint permutation, and emits its documented `joint_pos.csv`, `joint_vel.csv`, `body_pos.csv`, `body_quat.csv`, and `metadata.txt` at 50 Hz. It keeps hand placeholders in `hands.json` because SONIC joint references do not drive them. Playback is kinematic, **not SONIC controller execution**. A trained G1 FastWAM checkpoint and C++ controller execution are still needed.
-
-## Getting started on a fresh clone (Linux or Windows)
-
-Nothing large is stored in git. The ONNX graphs are re-downloaded and the derived
-config is regenerated locally.
+## Quickstart
 
 ```bash
-# 1. Python environment for the demo + model checks
-python -m venv .venv-model
-source .venv-model/bin/activate          # Windows: .venv-model\Scripts\activate
-pip install -r requirements-model.txt
-pip install -r requirements-demo.txt
-pip install huggingface_hub
+# 1. Environment (kept inside the repo; the demo needs no GPU)
+python3 -m venv --system-site-packages .venv-model
+.venv-model/bin/pip install -r requirements.txt
 
-# 2. Fetch the pretrained SONIC v1.1 encoder + decoder (~200 MB, public)
-python scripts/download_sonic_checkpoints.py
+# 2. Pretrained SONIC v1.1 encoder + decoder (~200 MB, public, ungated).
+#    If ~/.cache is not writable, keep Hugging Face's cache in the repo:
+export HF_HOME=$PWD/.cache/huggingface
+.venv-model/bin/python -m g1demo.cli download-sonic
 
-# 3. Regenerate the machine-specific derived config
-python scripts/build_g1_architecture.py
+# 3. Verify the contract and the SONIC chain (no physics, no GPU)
+.venv-model/bin/python -m g1demo.cli verify          # 16/16 checks
 
-# 4. Verify
-python scripts/validate_contract.py
-python scripts/verify_model.py           # 8 checks
-python scripts/verify_decoder.py         # 16 checks
-python scripts/run_demo.py --task both --out artifacts/run.json
+# 4. Closed-loop simulation
+.venv-model/bin/python -m g1demo.cli demo --motion standing --action-gain 0.5
+
+# 5. Tests
+.venv-model/bin/python -m unittest discover -s tests
 ```
 
-`scripts/verify_model.py` needs `artifacts/scripted_actions.npy`, which step 4's
-`run_demo.py` writes. Run the demo once before the model checks on a fresh clone.
+## Commands
 
-`scripts/verify_bridge.py` and `scripts/sonic_bridge.py` additionally require a
-local NVIDIA GEAR-SONIC checkout (for the G1 URDF and SONIC's joint permutation).
-Point the demo at it with an environment variable instead of relying on a sibling
-directory layout:
+| Command | What it does |
+|---|---|
+| `verify` | 16 checks over the contract, encoder, decoder and action convention |
+| `demo` | Closed-loop MuJoCo run; `--mode free\|anchored`, `--plot`, `--video` |
+| `gain-sweep` | Calibrates the effective loop gain of the MuJoCo plant |
+| `download-sonic` | Fetches and hash-checks the SONIC v1.1 ONNX graphs |
+| `extract-params` | Regenerates `configs/g1_sonic_params.json` from SONIC's C++ header |
+| `bridge-export` | Writes a SONIC reference clip for NVIDIA's own C++ simulator |
 
-```bash
-export SONIC_REPO=/path/to/GR00T-WholeBodyControl
-export FASTWAM_REPO=/path/to/FastWAM        # only needed for tests that build the real model
-```
-
-`scripts/project_paths.py` resolves both, falling back to sibling directories.
-
-## Repository layout
+## Layout
 
 ```text
-configs/     action_space.json (authoritative contract), fastwam_g1.yaml
-docs/        model_architecture.md, architecture.md, datasets.md
-scripts/     contract + demo + bridge + encoder + decoder + verification
-assets/      g1_meshfree.xml (generated from the upstream G1 MJCF)
-artifacts/   run outputs and verification reports (mostly regenerated)
-
-checkpoints/ NOT in git - run scripts/download_sonic_checkpoints.py
+g1demo/
+  contract.py       the 34-D action layout — the single source of truth
+  sonic_params.py   G1 constants extracted from SONIC's C++ deployment
+  sonic/
+    encoder.py      motion reference -> 64-D token
+    decoder.py      token + proprioception -> 29 joint actions
+  sim/g1_mujoco.py  mesh-free G1 plant with the deployment's PD gains
+  loop.py           the closed control loop
+  policy.py         FastWAM adapter + scripted stand-in references
+  bridge.py         SONIC reference-clip export for NVIDIA's C++ stack
+  cli.py            command line entry points
+configs/
+  action_space.json       editable action contract (hand sizes live here)
+  fastwam_g1.yaml         FastWAM model config for the G1
+  g1_sonic_params.json    generated; do not hand-edit
+tools/extract_sonic_params.py
+tests/
+docs/
 ```
 
-## Training stages
+## Where the constants come from
 
-1. **Video DiT initialization, no pretraining run.** Use the upstream FastWAM Wan2.2 TI2V 5B initialization and its ActionDiT interpolation script. The released LIBERO checkpoint is useful as a code smoke test, but its action head and normalization are for LIBERO and cannot directly drive G1.
-2. **Posttrain on public robot data.** Start with OpenHLM G1 whole-body data, then add NVIDIA synthetic G1 locomanipulation for task variety. Consider Unitree UnifoLM WBT subsets after inspecting individual schemas and licenses. Convert episodes into aligned camera, proprioception, 34-D action, mask, timestamp, and instruction records; normalize per embodiment and retain a held-out task split. This converter and GPU training are the next implementation milestone.
-3. **Fine-tune on matching teleoperation episodes.** Capture or select G1 task demonstrations with the same camera/action contract, and fine-tune at lower rate. Validate in simulation before any hardware work.
+Nothing here guesses a magic number. The joint permutations, default standing
+pose, action scales, PD gains, effort limits and joint limits are *evaluated from
+NVIDIA's own C++ source* by `tools/extract_sonic_params.py`, which parses their
+expressions rather than transcribing 150+ numbers by hand and cross-checks the
+MJCF against the URDF. The generated file records the source's SHA-256. The
+encoder and decoder then need **no** SONIC checkout at all.
 
-SONIC is appropriate as the eventual balance and whole-body execution layer, but its released interface accepts motion references/tokens rather than this raw OpenHLM-style 34-D action unchanged. `docs/architecture.md` records the adapter boundary and the required validation. Do not label the current IK controller as SONIC.
+## Upstream
 
-## Key upstream sources
+- [FastWAM](https://github.com/yuantianyuan01/FastWAM) — the policy
+- [SONIC / GR00T-WholeBodyControl](https://github.com/NVlabs/GR00T-WholeBodyControl) — the controller
+- [SONIC project page](https://nvlabs.github.io/GEAR-SONIC/) · [paper](https://arxiv.org/abs/2511.07820) · [docs](https://nvlabs.github.io/GR00T-WholeBodyControl/)
+- [SONIC v1.1 weights](https://huggingface.co/nvidia/GEAR-SONIC)
 
-- [FastWAM code and checkpoints](https://github.com/yuantianyuan01/FastWAM)
-- [OpenHLM action mapping and deployment example](https://github.com/OpenHLM-project/OpenHLM/blob/main/src/openpi4OpenHLM/examples/unitree_g1/sonic_g1_env.py)
-- [OpenHLM G1 dataset and model descriptions](https://github.com/OpenHLM-project/OpenHLM)
-- [NVIDIA GEAR SONIC](https://github.com/NVlabs/GR00T-WholeBodyControl)
-- [NVIDIA G1 locomanipulation dataset](https://huggingface.co/datasets/nvidia/g1_locomanip_dataset)
-- [Unitree UnifoLM WBT collection](https://huggingface.co/collections/unitreerobotics/unifolm-wbt-dataset)
+## What is needed next
+
+1. **Close the sim2sim gap** — run NVIDIA's own `deploy.sh sim` and compare its
+   action buffer against `SonicDecoder` for the same reference and state history.
+   `bridge-export` writes the reference clip that step needs. This is the single
+   measurement that turns the decoder output into a verified motor command.
+2. **Train a G1 FastWAM head.** Upstream ships LIBERO and RoboTwin checkpoints
+   whose action heads are 7- and 14-wide; neither can drive a 34-wide G1 head.
+   `FastWAMPolicy` is the drop-in point once such a checkpoint exists.
+3. **Choose the hands.** `configs/action_space.json` currently carries one scalar
+   per hand as a placeholder; change `end_effectors.*.size` and the contract, model
+   width and routing follow automatically.

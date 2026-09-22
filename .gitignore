@@ -6,21 +6,19 @@ venv/
 *.egg-info/
 
 # Pretrained SONIC graphs: ~200 MB, re-downloadable from Hugging Face.
-# Fetch them with `python scripts/download_sonic_checkpoints.py`
-# (or the SONIC repo's own `download_from_hf.py`).
+# Fetch them with `python -m g1demo.cli download-sonic`.
 checkpoints/
 
-# Generated, machine-specific. Contains machine-resolved absolute paths
-# (e.g. the sibling FastWAM ActionDiT checkpoint). Regenerate with:
-#   python scripts/build_g1_architecture.py
-configs/fastwam_g1_resolved.json
+# Generated from the official G1 MJCF on demand. Regenerate with:
+#   python -c "from g1demo.sim import build_model; build_model()"
+assets/g1_meshfree.xml
 
-# Generated run artefacts. Regenerate with the documented commands.
-artifacts/model_verification.json
-artifacts/closedloop_verification.json
-artifacts/closedloop_outputs.npz
-artifacts/decoded_action.npy
-artifacts/tiny_action_dit_UNTRAINED.pt
+# Run outputs: plots, reports and exported reference clips. Regenerate with
+# the documented `python -m g1demo.cli ...` commands.
+artifacts/
+
+# Caches kept inside the repo because the sandbox cannot write ~/.cache.
+.cache/
 
 # Editor / OS noise
 .vscode/

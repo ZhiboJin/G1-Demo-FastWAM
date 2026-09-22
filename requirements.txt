@@ -1,0 +1,17 @@
+# Core runtime: the demo, the SONIC ONNX graphs and the MuJoCo plant.
+numpy>=1.26
+onnxruntime>=1.17
+mujoco>=3.3
+PyYAML>=6
+Pillow>=10
+matplotlib>=3.8
+
+# Fetching the pretrained SONIC graphs.
+huggingface_hub>=0.20
+
+# Only needed by G1Policy: running the real FastWAM model.
+# Upstream FastWAM pins Python 3.10 with CUDA PyTorch; install it from
+# requirements-fastwam.txt rather than mixing it into the demo environment.
+#   torch==2.7.1+cu128
+#   torchvision==0.22.1+cu128
+#   einops, safetensors, transformers, ftfy, imageio, imageio-ffmpeg, rich

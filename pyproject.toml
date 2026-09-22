@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "g1demo"
+version = "0.2.0"
+description = "Whole-body control of a Unitree G1 with FastWAM-predicted references through the SONIC encoder and decoder"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "onnxruntime>=1.17",
+    "mujoco>=3.3",
+    "PyYAML>=6",
+    "Pillow>=10",
+    "matplotlib>=3.8",
+    "huggingface_hub>=0.20",
+]
+
+[project.scripts]
+g1demo = "g1demo.cli:main"
+
+[tool.setuptools]
+packages = ["g1demo", "g1demo.sonic", "g1demo.sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
