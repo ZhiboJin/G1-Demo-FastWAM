@@ -1,5 +1,16 @@
 # Continuation log
 
+## 2026-09-23 — SIMPLE/SONIC interface clarification
+
+- Traced SIMPLE's SONIC task and evaluator. Its current model path sends RGB,
+  43-joint state and language to an external policy server (Psi-0 example over
+  HTTP), receives `[T,78]` token-plus-Dex3-hand actions, publishes those over
+  ZMQ, and applies the official controller's low-level commands in MuJoCo.
+- Documented that our `[T,34]` reference-to-encoder standing loop is separate.
+  No FastWAM-to-SIMPLE bridge or full SONIC C++ runtime is running in this repo.
+- Before task training, choose between a SIMPLE-compatible 78-value token/head
+  output and a new reference-stream bridge for the existing 34-value path.
+
 ## 2026-09-23 — SONIC provenance and adapter audit
 
 - Confirmed SIMPLE is the separate sibling checkout at

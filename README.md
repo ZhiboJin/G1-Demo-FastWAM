@@ -37,6 +37,16 @@ The hands bypass SONIC because its graphs have no hand inputs or outputs. In
 NVIDIA's own deployment the dexterous-hand commands travel on a separate channel
 and never enter the policy.
 
+This diagram is the **small local standing test**, not the whole GEAR-SONIC
+deployment. The official stack also handles input streaming, state/history,
+the optional kinematic planner, controller timing, TensorRT inference, motor
+commands, and simulator/robot transport. SIMPLE's SONIC task uses that external
+controller. Its policy evaluation expects a 78-value action per step:
+`[SONIC token (64), left Dex3 hand (7), right Dex3 hand (7)]`; it sends the token
+over ZMQ and receives low-level commands back through its Unitree bridge. This
+repository does not yet connect FastWAM to that SIMPLE interface. See
+[docs/architecture.md](docs/architecture.md) for the two paths.
+
 ## Status — read this first
 
 | Piece | State |

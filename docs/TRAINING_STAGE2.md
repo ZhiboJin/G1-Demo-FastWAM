@@ -38,6 +38,9 @@ that is 66 values. These are FSQ **vectors**, not MotionWAM's learned discrete
 index representation. A predicted vector needs projection/quantization or a
 discrete-index head before use with the SONIC decoder; that model and runtime
 adapter have not been built.
+SIMPLE's current SONIC evaluator instead expects 78 values: the same 64-token
+body channel plus 7 joint commands for each Dex3 hand. The 66-value research
+baseline cannot be sent to that evaluator unchanged.
 
 Required raw episode `.npz` keys (all arrays aligned by frame index):
 

@@ -31,6 +31,30 @@ Everything left of the G1 is Python and runs on CPU. FastWAM itself needs CUDA;
 no upstream G1 checkpoint exists, so the demo substitutes a scripted reference that
 emits the identical `[T, 34]` interface.
 
+## Local test versus SIMPLE's full SONIC path
+
+The chain above is deliberately small: it checks our reference contract, the
+released SONIC ONNX graphs, and a MuJoCo plant. It does **not** replace
+NVIDIA's `gear_sonic_deploy` process. That process also owns input interfaces,
+reference playback, state history, optional kinematic planning, control timing,
+TensorRT execution, motor-command generation, and simulator/robot transport.
+
+SIMPLE's `G1WholebodyXMoveBendCarryBoxSonic-v0` uses the external controller.
+Its evaluation path reads a head image, 43-joint state, and language instruction;
+a policy server may return chunks of `[T,78]`, split into a 64-value SONIC token
+and seven Dex3 joints per hand. SIMPLE publishes the token and hands over ZMQ,
+the official SONIC controller decodes the token using live state, and SIMPLE's
+Unitree bridge forwards the controller's low-level commands to MuJoCo. The
+current example policy server is Psi-0 over HTTP. No FastWAM server or adapter
+for this interface has been implemented here.
+
+For the intended language-driven demo in SIMPLE, use the full controller and
+choose one explicit model output contract. Predicting `[T,78]` tokens/hands
+fits SIMPLE's existing evaluation path and bypasses the SONIC encoder at
+inference. Predicting `[T,34]` references preserves this repository's current
+encoder path, but requires a new reference-stream bridge and a real 14-joint
+Dex3 hand representation. Neither integration has been validated yet.
+
 ## The 34-D action contract
 
 `configs/action_space.json` is authoritative. With one scalar per hand:

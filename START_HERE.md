@@ -12,6 +12,8 @@ The full SONIC source submodule is optional for source comparison and URDF tools
 the demo uses its released ONNX graphs, downloaded separately.
 The local `g1demo/sonic/` folder is a small adapter to SONIC's released ONNX
 encoder and decoder, not a replacement for SONIC.
+This minimal standing loop is separate from SIMPLE's SONIC environment; there
+is currently no FastWAM-to-SIMPLE inference bridge in this repository.
 
 ## What runs now
 
