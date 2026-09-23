@@ -160,17 +160,12 @@ class WholeBodyController:
         #: a much stiffer MuJoCo servo otherwise turns into an unstable balance
         #: loop; see docs/sim2sim_gap.md.
         self.action_gain = float(action_gain)
-        for side in ("left", "right"):
-            if contract().hand_sizes[side] != 1:
-                raise NotImplementedError(
-                    "This demo routes one scalar per hand; update "
-                    "configs/action_space.json and the routing layer for multi-DoF hands."
-                )
 
     def run(self, sim: G1Sim, source: ActionSource, ticks: int = 100,
             instruction: str | None = None, reference_yaw: float | None = None,
             replan_every: int | None = None,
             on_step: Callable[[StepRecord, G1Sim], None] | None = None,
+            on_hand_command: Callable[[np.ndarray, np.ndarray], None] | None = None,
             stop_on_fall: bool = True) -> tuple[RunSummary, list[StepRecord]]:
         """Run the closed loop and return a summary plus per-tick records.
 
@@ -178,7 +173,9 @@ class WholeBodyController:
         before the current chunk's lookahead window runs out. ``replan_every``
         defaults to exactly that limit, so each chunk is fully consumed before the
         next is requested. ``on_step`` is called after every tick with the record
-        and the simulator, for rendering or logging.
+        and the simulator, for rendering or logging. ``on_hand_command`` receives
+        the left and right end-effector command at each tick; a real hand driver
+        can implement that boundary after its units and limits are configured.
         """
         if ticks <= 0:
             raise ValueError(f"ticks must be positive, got {ticks}")
@@ -232,6 +229,13 @@ class WholeBodyController:
             # servo is never asked for an unreachable target.
             q_command = np.clip(q_target, joint_lower(), joint_upper())
 
+            left_hand = np.asarray(packet["left_hand"], dtype=np.float64)
+            right_hand = np.asarray(packet["right_hand"], dtype=np.float64)
+            for side, hand in (("left", left_hand), ("right", right_hand)):
+                if hand.shape != (contract().hand_sizes[side],) or not np.isfinite(hand).all():
+                    raise ValueError(f"Invalid {side} end-effector command {hand}")
+            if on_hand_command is not None:
+                on_hand_command(left_hand.copy(), right_hand.copy())
             sim.set_targets(q_command)
             sim.advance()
 
@@ -246,8 +250,8 @@ class WholeBodyController:
                 saturated=saturated,
                 base_height=float(sim.base_position[2]),
                 base_quat_wxyz=sim.base_quat_wxyz,
-                left_hand=packet["left_hand"],
-                right_hand=packet["right_hand"],
+                left_hand=left_hand,
+                right_hand=right_hand,
             )
             records.append(record)
             if on_step is not None:

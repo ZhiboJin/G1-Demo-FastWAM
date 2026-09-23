@@ -1,5 +1,11 @@
 # FastWAM × Unitree G1 — whole-body control through SONIC
 
+**Start with [START_HERE.md](START_HERE.md)** for the repository map, the one
+working demo command, and the remaining work before robot deployment.
+The current comparison and training work is in
+[docs/SONIC_COMPARISON.md](docs/SONIC_COMPARISON.md) and
+[docs/TRAINING_STAGE2.md](docs/TRAINING_STAGE2.md).
+
 Deploying **FastWAM** (a world-action model) onto a **Unitree G1** humanoid, using
 NVIDIA's **SONIC** (GEAR-SONIC) controller as the whole-body execution layer, and
 demonstrating the chain in MuJoCo.
@@ -40,7 +46,7 @@ and never enter the policy.
 | `q_target = default + action * scale` convention | **Resolved from source**; previously an open question |
 | MuJoCo G1 plant with the deployment's PD gains | **Working**, but see the limitation below |
 | Closed loop, free base | **Runs**; stable for the full 5 s run at reduced effective gain |
-| FastWAM → G1 inference | **Not possible yet** — upstream has released no G1 checkpoint |
+| FastWAM → G1 inference | **Adapter implemented, untested with G1 weights** — training and statistics are still needed |
 
 **The honest limitation.** Driving the SONIC decoder against a MuJoCo G1 built
 from NVIDIA's shipped MJCF does not balance at the deployment's nominal gain. The
@@ -101,14 +107,12 @@ access. That is not a driver fault: the same commands work in a normal shell.
 ## Quickstart
 
 ```bash
-# 1. Environment (kept inside the repo; the demo needs no GPU)
+# 1. Official SONIC source and G1 MuJoCo model, pinned in this repository.
+git submodule update --init
+
+# 2. Environment (kept inside the repo; the demo needs no GPU)
 python3 -m venv --system-site-packages .venv-model
 .venv-model/bin/pip install -r requirements.txt
-
-# 2. The real G1 (MuJoCo Menagerie, ~35 MB of meshes, including Git-LFS blobs).
-#    Clone it anywhere and point MENAGERIE_REPO at it, or drop it in third_party/:
-git clone --depth 1 https://github.com/google-deepmind/mujoco_menagerie.git \
-    third_party/mujoco_menagerie
 
 # 3. Pretrained SONIC v1.1 encoder + decoder (~200 MB, public, ungated).
 #    If ~/.cache is not writable, keep Hugging Face's cache in the repo:
@@ -126,7 +130,10 @@ export HF_HOME=$PWD/.cache/huggingface
 ```
 
 Path resolution lives in `g1demo/paths.py`. `MENAGERIE_REPO`, `SONIC_REPO` and
-`FASTWAM_REPO` all override the default sibling/`third_party` locations.
+`FASTWAM_REPO` override the default locations. This checkout lives beside
+`FastWAM/` and `SIMPLE/`; SONIC and Menagerie are pinned submodules in this
+repository. SIMPLE supplies simulation tasks and data; the original FastWAM
+checkout supplies the policy code when a trained checkpoint is available.
 
 ## Commands
 
@@ -178,7 +185,7 @@ and you follow the data path from end to end:
 | `g1demo/sonic/decoder.py` | How does a token become 29 joint actions? |
 | `g1demo/sim/g1_mujoco.py` | What robot is it running on? |
 | `g1demo/loop.py` | What happens in one 50 Hz control tick? |
-| `g1demo/policy.py` | Where does the reference come from? |
+| `g1demo/policy.py` | Where does the scripted or learned reference come from? |
 | `g1demo/cli.py` | What can I run? |
 
 `g1demo/loop.py`'s module docstring is the whole pipeline in six lines, so it is
@@ -224,7 +231,9 @@ encoder and decoder then need **no** SONIC checkout at all.
    measurement that turns the decoder output into a verified motor command.
 2. **Train a G1 FastWAM head.** Upstream ships LIBERO and RoboTwin checkpoints
    whose action heads are 7- and 14-wide; neither can drive a 34-wide G1 head.
-   `FastWAMPolicy` is the drop-in point once such a checkpoint exists.
+   `FastWAMPolicy.predict()` is wired to the upstream inference API and needs a
+   G1 checkpoint plus action/proprioception statistics and an RGB camera frame.
 3. **Choose the hands.** `configs/action_space.json` currently carries one scalar
-   per hand as a placeholder; change `end_effectors.*.size` and the contract, model
-   width and routing follow automatically.
+   per hand as a placeholder. Choose the actual command size, update both
+   `action_dim` values in `configs/fastwam_g1.yaml`, and supply a driver via
+   `on_hand_command`; this simulator has no hand actuators.

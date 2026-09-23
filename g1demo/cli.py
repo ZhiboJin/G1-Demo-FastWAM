@@ -6,6 +6,7 @@
     python -m g1demo.cli demo --motion standing    # closed-loop simulation
     python -m g1demo.cli gain-sweep                # plant gain calibration
     python -m g1demo.cli bridge-export             # clip for NVIDIA's C++ simulator
+    python -m g1demo.cli prepare-stage2             # encode one recorded episode
 """
 from __future__ import annotations
 
@@ -370,6 +371,21 @@ def cmd_demo(args) -> int:
         on_step=on_step if args.video else None,
     )
 
+    if args.trace:
+        args.trace.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            args.trace,
+            tick=np.asarray([r.tick for r in records], dtype=np.int64),
+            frame=np.asarray([r.frame for r in records], dtype=np.int64),
+            sonic_token=np.stack([r.token for r in records]),
+            raw_action=np.stack([r.raw_action for r in records]),
+            q_target=np.stack([r.q_target for r in records]),
+            q_measured=np.stack([r.q_measured for r in records]),
+            base_quat_wxyz=np.stack([r.base_quat_wxyz for r in records]),
+            left_hand=np.stack([r.left_hand for r in records]),
+            right_hand=np.stack([r.right_hand for r in records]),
+        )
+
     payload = {
         "mode": "free_base" if free_base else "anchored",
         "model_source": args.source,
@@ -507,6 +523,16 @@ def cmd_bridge(args) -> int:
     return 0
 
 
+def cmd_prepare_stage2(args) -> int:
+    """Turn one synchronized episode into SONIC-latent supervision."""
+    from .stage2_data import prepare_episode
+
+    prepared = prepare_episode(args.episode, args.out)
+    with np.load(prepared, allow_pickle=False) as data:
+        print(f"wrote {prepared} ({len(data['sonic_token'])} labeled frames)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="g1demo",
@@ -557,6 +583,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--height", type=int, default=480)
     p.add_argument("--width", type=int, default=640)
     p.add_argument("--out", type=Path, default=ARTIFACTS / "run.json")
+    p.add_argument("--trace", type=Path, default=None,
+                   help="write per-tick token, actions, targets and state to .npz")
     p.set_defaults(func=cmd_demo)
 
     p = sub.add_parser("gain-sweep", help="calibrate the effective loop gain")
@@ -582,6 +610,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--origin", default=None, help="provenance label")
     p.add_argument("--out", type=Path, default=ARTIFACTS / "sonic_reference")
     p.set_defaults(func=cmd_bridge)
+
+    p = sub.add_parser("prepare-stage2",
+                       help="validate an episode and encode SONIC token targets")
+    p.add_argument("--episode", type=Path, required=True, help="synchronized .npz input")
+    p.add_argument("--out", type=Path, required=True, help="prepared .npz output")
+    p.set_defaults(func=cmd_prepare_stage2)
 
     return parser
 

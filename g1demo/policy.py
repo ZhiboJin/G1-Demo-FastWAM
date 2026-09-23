@@ -7,9 +7,8 @@ script. Both sources implement :class:`g1demo.loop.ActionSource`.
 * :class:`ScriptedReference` produces smooth, repeatable whole-body motions. These
   are explicitly *not* learned policies; they exist so the SONIC chain and the
   physics loop can be exercised before a G1 checkpoint exists.
-* :class:`FastWAMPolicy` wraps the real FastWAM model. It is the intended
-  production source. Upstream has released no G1 checkpoint, so its inference
-  entry point is a documented stub rather than a silently broken one.
+* :class:`FastWAMPolicy` wraps the real FastWAM inference API. It requires a
+  trained G1 checkpoint, matching normalization statistics and a camera image.
 """
 from __future__ import annotations
 
@@ -154,25 +153,28 @@ class FastWAMPolicy:
     sized from the contract. The hand channels it predicts are *not* fed to SONIC;
     they bypass the encoder, matching NVIDIA's deployment.
 
-    ``load`` and ``set_normalizer`` are implemented and validated. ``actions`` is a
-    documented stub: upstream has released LIBERO and RoboTwin checkpoints whose
-    action heads are 7 and 14 wide, and neither can drive a 34-wide G1 head, so
-    there is nothing to run yet. Everything downstream of the chunk is implemented
-    and is what :class:`ScriptedReference` exercises.
+    No G1 weights or statistics are bundled. The adapter is ready for a trained
+    checkpoint but fails clearly until those inputs are supplied.
     """
 
     def __init__(self, checkpoint: Path | str | None = None,
                  config: Path | str | None = None,
                  device: str = "cuda", dtype: str = "bfloat16",
-                 action_horizon: int = 50) -> None:
+                 action_horizon: int = DEFAULT_HORIZON,
+                 observation_provider: Callable | None = None) -> None:
         self.checkpoint = Path(checkpoint) if checkpoint else None
         self.config = Path(config) if config else CONFIGS / "fastwam_g1.yaml"
         self.device = device
         self.dtype = dtype
         self.action_horizon = action_horizon
+        self.observation_provider = observation_provider
         self.model = None
         self._mean: np.ndarray | None = None
         self._scale: np.ndarray | None = None
+        self._proprio_mean: np.ndarray | None = None
+        self._proprio_scale: np.ndarray | None = None
+        if action_horizon < LOOKAHEAD:
+            raise ValueError(f"action_horizon must be at least {LOOKAHEAD}")
 
     @property
     def name(self) -> str:
@@ -216,10 +218,11 @@ class FastWAMPolicy:
 
         self.model = create_fastwam(
             device=self.device,
-            torch_dtype=getattr(torch, self.dtype),
-            **{key: value for key, value in config.items() if key != "_target_"},
+            model_dtype=getattr(torch, self.dtype),
+            **{key: value for key, value in config.items()
+               if key not in {"_target_", "compile_training_denoise"}},
         )
-        self.model.load_checkpoint(torch.load(self.checkpoint, map_location="cpu"))
+        self.model.load_checkpoint(self.checkpoint)
         self.model.to(self.device).eval()
 
     def set_normalizer(self, mean, scale) -> None:
@@ -248,12 +251,68 @@ class FastWAMPolicy:
             )
         return np.asarray(actions, dtype=np.float64) * self._scale + self._mean
 
-    def actions(self, sim, instruction: str | None = None) -> np.ndarray:
-        """Predict one chunk. Requires :meth:`load` and :meth:`set_normalizer`."""
-        raise NotImplementedError(
-            "FastWAM inference needs camera observations, a text prompt and fitted "
-            "G1 normalization statistics. Wire this up once a G1 checkpoint exists: "
-            "call self.model.infer_action(...) with the chunk horizon, then "
-            "self.denormalize(...). The pipeline from the action chunk onwards is "
-            "already implemented, and is what ScriptedReference exercises."
+    def set_proprio_normalizer(self, mean, scale) -> None:
+        """Supply training statistics for the 29 measured body joints."""
+        mean = np.asarray(mean, dtype=np.float64).reshape(-1)
+        scale = np.asarray(scale, dtype=np.float64).reshape(-1)
+        if mean.shape != (contract().num_joints,) or scale.shape != mean.shape:
+            raise ValueError(f"Proprio normalizer needs {contract().num_joints} entries")
+        if not np.isfinite(mean).all() or not np.isfinite(scale).all() or (scale <= 0).any():
+            raise ValueError("Proprio mean/scale must be finite with positive scale")
+        self._proprio_mean, self._proprio_scale = mean, scale
+
+    def predict(self, image: np.ndarray, joint_positions: np.ndarray,
+                instruction: str) -> np.ndarray:
+        """Return physical-unit G1 references from one RGB frame and joint state.
+
+        ``image`` is uint8 HWC RGB; joints are absolute radians in SONIC's
+        MuJoCo order. FastWAM receives RGB in [-1, 1] and normalized proprio.
+        """
+        if self.model is None:
+            raise RuntimeError("Load a trained G1 FastWAM checkpoint first")
+        if self._mean is None or self._scale is None:
+            raise RuntimeError("Set G1 action normalization statistics first")
+        if self._proprio_mean is None or self._proprio_scale is None:
+            raise RuntimeError("Set G1 proprio normalization statistics first")
+        if not instruction or not instruction.strip():
+            raise ValueError("A language instruction is required")
+        image = np.asarray(image)
+        if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
+            raise ValueError("image must be uint8 RGB [H,W,3]")
+        if image.shape[0] % 16 or image.shape[1] % 16:
+            raise ValueError("image height and width must be multiples of 16")
+        joints = np.asarray(joint_positions, dtype=np.float64)
+        if joints.shape != (contract().num_joints,) or not np.isfinite(joints).all():
+            raise ValueError(f"joint_positions must be {contract().num_joints} finite angles")
+
+        import torch
+
+        rgb = torch.from_numpy(np.ascontiguousarray(image)).permute(2, 0, 1)
+        rgb = rgb.float().div(127.5).sub(1.0)
+        proprio = torch.from_numpy(
+            ((joints - self._proprio_mean) / self._proprio_scale).astype(np.float32)
         )
+        with torch.no_grad():
+            result = self.model.infer_action(
+                prompt=instruction,
+                input_image=rgb,
+                action_horizon=self.action_horizon,
+                proprio=proprio,
+            )
+        action = result["action"]
+        if isinstance(action, torch.Tensor):
+            action = action.detach().cpu().numpy()
+        action = np.asarray(action)
+        if action.shape == (1, self.action_horizon, contract().action_dim):
+            action = action[0]
+        if action.shape != (self.action_horizon, contract().action_dim):
+            raise ValueError(f"FastWAM returned malformed action chunk {action.shape}")
+        if not np.isfinite(action).all():
+            raise ValueError("FastWAM returned non-finite actions")
+        return self.denormalize(action)
+
+    def actions(self, sim, instruction: str | None = None) -> np.ndarray:
+        """Adapt the simulation loop using a caller-supplied RGB camera source."""
+        if self.observation_provider is None:
+            raise RuntimeError("Pass observation_provider(sim) -> uint8 RGB image")
+        return self.predict(self.observation_provider(sim), sim.joint_pos, instruction or "")

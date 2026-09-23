@@ -10,9 +10,10 @@ Environment variables (all optional):
     Defaults to ``../FastWAM``, and also accepts the repository's own parent
     directory when this demo is checked out *inside* a FastWAM workspace.
 ``SONIC_REPO``
-    NVlabs/GR00T-WholeBodyControl checkout. Only needed by the contract/bridge
-    tools that read the G1 URDF; the encoder/decoder path ships its constants in
-    ``configs/g1_sonic_params.json`` and needs no checkout.
+    NVlabs/GR00T-WholeBodyControl checkout. Defaults to this repository's
+    ``third_party/GR00T-WholeBodyControl`` submodule. Only needed by tools
+    reading NVIDIA's source or G1 URDF; ONNX inference uses the pinned local
+    constants and downloaded checkpoints.
 
 ``HF_HOME`` may also need to be set to a writable directory when downloading the
 pretrained SONIC graphs; ``download_sonic_checkpoints.py`` respects whatever
@@ -65,8 +66,7 @@ def fastwam_repo() -> Path:
         [
             # Sibling layout: robotics/FastWAM next to robotics/G1-Demo-FastWAM.
             ROOT.parent / "FastWAM",
-            # Nested layout: the demo cloned inside an existing FastWAM workspace,
-            # which is what this project's workspace uses.
+            # Also accept an older nested checkout.
             ROOT.parent,
         ],
         "src/fastwam/runtime.py",
@@ -81,7 +81,6 @@ def sonic_repo() -> Path:
         [
             ROOT / "third_party/GR00T-WholeBodyControl",
             ROOT.parent / "GR00T-WholeBodyControl",
-            ROOT.parent / "third_party/GR00T-WholeBodyControl",
         ],
         "gear_sonic_deploy/deploy.sh",
         "the NVlabs GEAR-SONIC checkout (needed only by the URDF bridge tools)",
@@ -98,7 +97,6 @@ def menagerie_repo() -> Path:
         "MENAGERIE_REPO",
         [
             ROOT / "third_party/mujoco_menagerie",
-            ROOT.parent / "third_party/mujoco_menagerie",
             ROOT.parent / "mujoco_menagerie",
         ],
         "unitree_g1/scene.xml",

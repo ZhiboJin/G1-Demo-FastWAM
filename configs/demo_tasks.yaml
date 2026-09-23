@@ -1,0 +1,24 @@
+# Proposed progression. Only the listed SIMPLE IDs are registered upstream.
+# Success predicates are proposed evaluation criteria, not implemented rewards.
+tasks:
+  - id: tabletop_grasp
+    instruction: "Grasp the marked object on the table and lift it clear."
+    simple_env: simple/G1WholebodyTabletopGraspMP-v0
+    simple_controller: AMO + CuRobo motion planning
+    whole_body_reason: standing balance and coordinated reach
+    success: object lifted above table while robot remains upright
+    data_use: stage-2 candidate after retargeting and joint-order validation
+  - id: bend_pick
+    instruction: "Bend down, pick up the object, and return upright."
+    simple_env: simple/G1WholebodyBendPickMP-v0
+    simple_controller: AMO + CuRobo motion planning
+    whole_body_reason: waist, legs, arms, and balance all change
+    success: object grasped and torso upright without a fall
+    data_use: stage-2 candidate after retargeting and joint-order validation
+  - id: carry_box
+    instruction: "Move to the box, bend, lift it with both hands, and carry it forward."
+    simple_env: simple/G1WholebodyXMoveBendCarryBoxSonic-v0
+    simple_controller: external SONIC
+    whole_body_reason: locomotion, squat, bimanual grasp, and carrying
+    success: box transported to goal without dropping it or falling
+    data_use: preferred SONIC-aligned task; upstream collection is teleoperation

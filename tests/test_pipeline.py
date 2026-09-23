@@ -424,6 +424,29 @@ class TestSimulator(unittest.TestCase):
 
 class TestClosedLoop(unittest.TestCase):
     @unittest.skipUnless(HAVE_SONIC, SONIC_SKIP)
+    def test_hand_commands_reach_the_callback_each_tick(self):
+        from g1demo.loop import WholeBodyController
+        from g1demo.policy import ScriptedReference
+        from g1demo.sim import G1Sim
+
+        class WithHands(ScriptedReference):
+            def actions(self, sim=None, instruction=None):
+                chunk = super().actions(sim, instruction)
+                chunk[:, contract()["left_end_effector"].slice] = 0.25
+                chunk[:, contract()["right_end_effector"].slice] = 0.75
+                return chunk
+
+        received = []
+        WholeBodyController().run(
+            G1Sim(free_base=False), WithHands(horizon=60), ticks=3,
+            on_hand_command=lambda left, right: received.append((left, right)),
+        )
+        self.assertEqual(len(received), 3)
+        for left, right in received:
+            np.testing.assert_allclose(left, 0.25)
+            np.testing.assert_allclose(right, 0.75)
+
+    @unittest.skipUnless(HAVE_SONIC, SONIC_SKIP)
     def test_short_run_produces_a_sane_summary(self):
         from g1demo.loop import WholeBodyController
         from g1demo.policy import ScriptedReference
@@ -548,6 +571,94 @@ class TestScriptedReference(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             ScriptedReference(motion="backflip")
+
+
+class TestFastWAMAdapter(unittest.TestCase):
+    def test_observation_and_normalization_reach_infer_action(self):
+        from g1demo.policy import FastWAMPolicy
+
+        class FakeModel:
+            def infer_action(self, **kwargs):
+                self.inputs = kwargs
+                return {"action": np.ones((50, contract().action_dim), dtype=np.float32)}
+
+        policy = FastWAMPolicy(action_horizon=50)
+        policy.model = FakeModel()
+        policy.set_normalizer(np.full(contract().action_dim, 2),
+                              np.full(contract().action_dim, 3))
+        policy.set_proprio_normalizer(np.ones(29), np.full(29, 2))
+        image = np.full((32, 48, 3), 255, dtype=np.uint8)
+        actions = policy.predict(image, np.full(29, 3.0), "raise the right hand")
+        np.testing.assert_allclose(actions, 5)
+        self.assertEqual(policy.model.inputs["prompt"], "raise the right hand")
+        np.testing.assert_allclose(policy.model.inputs["proprio"].numpy(), 1)
+        np.testing.assert_allclose(policy.model.inputs["input_image"].numpy(), 1)
+
+    def test_missing_checkpoint_and_statistics_fail_closed(self):
+        from g1demo.policy import FastWAMPolicy
+
+        policy = FastWAMPolicy()
+        with self.assertRaises(FileNotFoundError):
+            policy.load()
+        with self.assertRaises(RuntimeError):
+            policy.predict(np.zeros((32, 32, 3), dtype=np.uint8),
+                           np.zeros(29), "stand")
+
+
+class TestStage2Data(unittest.TestCase):
+    @unittest.skipUnless(HAVE_SONIC, SONIC_SKIP)
+    def test_real_sonic_encoder_produces_one_stage2_label(self):
+        import tempfile
+
+        from g1demo.stage2_data import prepare_episode
+
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / "raw.npz", Path(folder) / "prepared.npz"
+            np.savez_compressed(
+                source, rgb=np.zeros((46, 32, 32, 3), dtype=np.uint8),
+                joint_pos=np.tile(sp.default_angles(), (46, 1)),
+                base_quat_wxyz=np.tile([1, 0, 0, 0], (46, 1)),
+                action_ref=default_chunk(46), timestamp_s=np.arange(46) / 50,
+                instruction="stand still", task_id="test/standing",
+            )
+            prepare_episode(source, output)
+            with np.load(output, allow_pickle=False) as data:
+                self.assertEqual(data["sonic_token"].shape, (1, 64))
+                self.assertEqual(data["latent_action"].shape,
+                                 (1, 64 + sum(contract().hand_sizes.values())))
+                self.assertTrue(np.isfinite(data["latent_action"]).all())
+
+    def test_prepared_rows_align_observation_token_and_hands(self):
+        import tempfile
+
+        from g1demo.stage2_data import prepare_episode
+
+        class Encoder:
+            def encode(self, actions, _quat, _yaw, frame=0):
+                return {
+                    "token": np.full(64, frame, dtype=np.float32),
+                    "left_hand": actions[frame, contract()["left_end_effector"].slice],
+                    "right_hand": actions[frame, contract()["right_end_effector"].slice],
+                }
+
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / "raw.npz", Path(folder) / "prepared.npz"
+            actions = default_chunk(48)
+            actions[:, contract()["left_end_effector"].slice] = np.arange(48)[:, None]
+            actions[:, contract()["right_end_effector"].slice] = 2
+            np.savez_compressed(
+                source, rgb=np.zeros((48, 32, 32, 3), dtype=np.uint8),
+                joint_pos=np.tile(sp.default_angles(), (48, 1)),
+                base_quat_wxyz=np.tile([1, 0, 0, 0], (48, 1)),
+                action_ref=actions, timestamp_s=np.arange(48) / 50,
+                instruction="raise the right hand", task_id="test/raise_hand",
+            )
+            prepare_episode(source, output, encoder=Encoder())
+            with np.load(output, allow_pickle=False) as data:
+                self.assertEqual(data["sonic_token"].shape, (3, 64))
+                np.testing.assert_array_equal(data["sonic_token"][:, 0], [0, 1, 2])
+                np.testing.assert_array_equal(data["left_hand"][:, 0], [0, 1, 2])
+                self.assertEqual(str(data["instruction"]), "raise the right hand")
 
 
 class TestBridge(unittest.TestCase):

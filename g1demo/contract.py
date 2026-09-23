@@ -9,9 +9,9 @@ made of named blocks and, for each block, where it goes:
   does: SONIC's graphs have no hand inputs or outputs.
 
 Nothing else in this package re-derives the layout. If you change the hand
-dimensions in ``action_space.json``, every slice, packing helper and model
-configuration follows automatically, and :func:`contract` will refuse to load a
-FastWAM configuration whose action width no longer matches.
+dimensions in ``action_space.json``, the slices and packing helpers follow.
+Update the model's two ``action_dim`` values as well; ``FastWAMPolicy.load``
+checks that its configuration matches this contract.
 """
 from __future__ import annotations
 

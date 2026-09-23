@@ -50,9 +50,9 @@ Joint values are absolute radians. Root units are rad, rad, rad/s. Hand units ar
 placeholders until hardware is chosen.
 
 `g1demo/contract.py` parses this once per process and derives every slice, so
-changing a hand size updates the packing, the FastWAM action width and the model
-config check together. `FastWAMPolicy.load()` refuses a YAML whose `action_dim`
-disagrees with the contract.
+changing a hand size updates packing and the contract width. Update both
+`action_dim` values in `configs/fastwam_g1.yaml` too; `FastWAMPolicy.load()`
+refuses a YAML whose width disagrees with the contract.
 
 ## Three joint orderings, and why that is the main hazard
 

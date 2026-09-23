@@ -3,7 +3,7 @@
 # Action: 29 absolute joint angles + left/right hands (1 each) + root roll/pitch/yaw-rate.
 # Order and hand sizes: action_space.json; update BOTH action_dim values when sizes change.
 # Proprioception: 29 measured joint angles in MuJoCo order.
-# load_text_encoder=false requires precomputed context/context_mask for inference.
+# The text encoder is required for direct language-instruction inference.
 # Action horizon is an infer_action argument: use 50 at 50 Hz for the initial demo.
 # SONIC v1.1 needs 46 remaining frames per tick; hands bypass its encoder.
 # Checkpoint path below is relative to the sibling FastWAM repository.
@@ -13,7 +13,7 @@ _target_: fastwam.runtime.create_fastwam
 model_id: Wan-AI/Wan2.2-TI2V-5B
 tokenizer_model_id: Wan-AI/Wan2.1-T2V-1.3B
 tokenizer_max_len: 128
-load_text_encoder: false
+load_text_encoder: true
 proprio_dim: 29
 redirect_common_files: true
 mot_checkpoint_mixed_attn: false

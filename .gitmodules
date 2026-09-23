@@ -1,0 +1,6 @@
+[submodule "sonic"]
+	path = third_party/GR00T-WholeBodyControl
+	url = https://github.com/NVlabs/GR00T-WholeBodyControl.git
+[submodule "mujoco_menagerie"]
+	path = third_party/mujoco_menagerie
+	url = https://github.com/google-deepmind/mujoco_menagerie.git
