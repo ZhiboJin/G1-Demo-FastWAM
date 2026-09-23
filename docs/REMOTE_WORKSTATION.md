@@ -61,4 +61,12 @@ does not solve it. A working HTTPS proxy/VPN on the remote, or transfer from a
 machine with good connectivity, is needed. Hugging Face downloads may also
 redirect to `hf.co` storage/CDN hosts.
 
+The remote account has no `sudo` access and did not initially have `rsync`.
+Debian `rsync` 3.4.1 was extracted under `/home/justin/.local/rsync`, with a
+symlink at `/home/justin/.local/bin/rsync`. Its dry run over SSH listed all
+three SONIC v1.1 files (199,898,909 bytes total). To resume the transfer from
+the laptop, add `--rsync-path=/home/justin/.local/bin/rsync` to the laptop's
+`rsync -avP --append-verify` command. This user-local binary is intentionally
+not installed into the system path.
+
 No EngineAI project or files were changed during this bring-up.
