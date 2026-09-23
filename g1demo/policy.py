@@ -97,7 +97,7 @@ MOTIONS: dict[str, Motion] = {
 class ScriptedReference:
     """A scripted whole-body motion, used as a stand-in for FastWAM.
 
-    It emits exactly the same ``[T, 34]`` interface a trained policy would, so the
+    It emits the same ``[T, action_dim]`` interface a trained policy would, so the
     SONIC encoder, decoder and control loop cannot tell the difference.
     """
 
@@ -190,7 +190,7 @@ class FastWAMPolicy:
             raise FileNotFoundError(
                 "No G1 FastWAM checkpoint. Upstream FastWAM ships LIBERO/RoboTwin "
                 "weights only; those action heads are 7/14 wide and cannot drive a "
-                "G1. Train a 34-wide head first, or use ScriptedReference to exercise "
+                f"G1. Train a {contract().action_dim}-wide head first, or use ScriptedReference to exercise "
                 "the SONIC half of the pipeline."
             )
         import torch

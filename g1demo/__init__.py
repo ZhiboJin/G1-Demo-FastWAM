@@ -2,7 +2,7 @@
 
 The pipeline this package implements::
 
-    FastWAM  --predicts-->  [T, 34] joint + hand + root references
+    FastWAM  --predicts-->  [T, 46] joint + Dex3 hand + root references
                               |
                               +-- 29 body joints + 3 root channels
                               |     -> SONIC v1.1 encoder (incl. FSQ)
@@ -19,7 +19,7 @@ and never enter the policy.
 Modules
 -------
 ``contract``
-    The 34-D action layout, loaded once from ``configs/action_space.json``.
+    The 46-D action layout, loaded once from ``configs/action_space.json``.
 ``sonic_params``
     Authoritative G1 constants extracted from the SONIC C++ deployment.
 ``sonic``

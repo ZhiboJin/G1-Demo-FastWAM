@@ -397,7 +397,7 @@ def cmd_demo(args) -> int:
         "fastwam_inference": False,
         "fastwam_note": (
             "No G1 FastWAM checkpoint exists upstream; a scripted reference drives "
-            "the identical [T, 34] interface."
+            f"the identical [T, {contract().action_dim}] interface."
         ),
         "hands_routed": "bypass encoder and decoder",
         "summary": summary.as_dict(),
@@ -602,7 +602,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("bridge-export",
                        help="export a SONIC reference clip for NVIDIA's C++ simulator")
-    p.add_argument("--actions", type=Path, default=None, help="[T, 34] .npy chunk")
+    p.add_argument("--actions", type=Path, default=None, help="[T, action_dim] .npy chunk")
     p.add_argument("--motion", choices=MOTIONS, default="standing",
                    help="used when --actions is omitted")
     p.add_argument("--horizon", type=int, default=200)

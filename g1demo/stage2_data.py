@@ -33,7 +33,8 @@ def prepare_episode(source: Path | str, output: Path | str,
     MuJoCo order, ``base_quat_wxyz`` [T,4], ``action_ref`` [T,action_dim],
     ``timestamp_s`` [T], scalar strings ``instruction`` and ``task_id``.
     ``action_ref`` is the desired motion trajectory, not the measured joints.
-    Output has T-45 labeled frames because SONIC needs 46 reference frames.
+    Output has T-45 labeled frames because SONIC needs 46 reference frames;
+    each row retains the physical ``action_ref`` target alongside its token.
     """
     source, output = Path(source), Path(output)
     with np.load(source, allow_pickle=False) as episode:
@@ -88,6 +89,7 @@ def prepare_episode(source: Path | str, output: Path | str,
     np.savez_compressed(
         output, rgb=rgb[:rows], joint_pos=joints[:rows].astype(np.float32),
         base_quat_wxyz=quat[:rows].astype(np.float32),
+        action_ref=actions[:rows].astype(np.float32),
         timestamp_s=timestamp[:rows], sonic_token=tokens,
         left_hand=left, right_hand=right, latent_action=latent_action,
         instruction=np.asarray(instruction), task_id=np.asarray(task_id),

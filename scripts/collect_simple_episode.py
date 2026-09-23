@@ -1,7 +1,7 @@
 """Record one successful SIMPLE G1 MP rollout without changing SIMPLE itself.
 
 This is a raw source episode. Its 43-D mixed AMO/CuRobo/Dex3 targets are NOT
-the 34-D SONIC reference expected by ``prepare-stage2``.
+the 46-D body/root/Dex3 reference expected by ``prepare-stage2``.
 """
 from __future__ import annotations
 

@@ -1,5 +1,18 @@
 # Continuation log
 
+## 2026-09-23 — selected physical-reference output
+
+- Set the G1 FastWAM action contract to 46 values: 29 absolute body angles,
+  three root channels and 7+7 named Dex3 hand angles in SIMPLE's order. The
+  model YAML now has matching 46-value action dimensions.
+- SONIC mode 0 still encodes only the body/root motion window; both hand arrays
+  bypass its ONNX graph. The post-encoder packet is 64+7+7 = 78 values, matching
+  SIMPLE's evaluator width. The hand callback is a software boundary only.
+- The selected training target is the 46-value physical reference, not the
+  prepared file's optional 78-value latent action. Converted training data,
+  normalization statistics, a trained checkpoint and a FastWAM-to-SIMPLE bridge
+  remain outstanding.
+
 ## 2026-09-23 — SIMPLE/SONIC interface clarification
 
 - Traced SIMPLE's SONIC task and evaluator. Its current model path sends RGB,

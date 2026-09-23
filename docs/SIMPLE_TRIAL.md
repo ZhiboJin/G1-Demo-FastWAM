@@ -73,7 +73,7 @@ MUJOCO_GL=egl .venv-lite/bin/python \
 
 This is **source data**, not `prepare-stage2` input. It has 43 mixed MP target
 channels, no explicit desired root orientation/yaw-rate trajectory, and 14
-Dex3 hand joints instead of the current two scalar placeholders. Its head
+Dex3 hand joints with the same width as the updated contract. Its head
 image is 360×640, so height also needs a resize/crop to a multiple of 16.
 Do not rename `action_target_43` to `action_ref` or train a SONIC latent policy
 from it without the conversion decisions below.
@@ -96,14 +96,14 @@ is not already a SONIC motion reference.
 |---|---|---|
 | head camera frame | `rgb [T,H,W,3]` | Select one camera; resize/crop to dimensions divisible by 16; verify timing and color order. |
 | `observation.joint_qpos [T,43]` | `joint_pos [T,29]` | Select the 29 body joints by **name** and reorder to SONIC MuJoCo order; verify units. |
-| `action [T,43]` | `action_ref [T,34]` | Select/reorder 29 **desired** body joints; derive root roll, pitch, and yaw rate from a recorded desired root trajectory; map hands explicitly. Never use measured positions as desired actions without labeling that approximation. |
-| 14 Dex3 hand targets | two scalar hand channels | Current contract cannot preserve dexterous motion. Expand hand contract/model or define and validate a grasp synergy with hardware-compatible units. |
+| `action [T,43]` | `action_ref [T,46]` | Select/reorder 29 **desired** body joints and 14 Dex3 hand targets by name; derive root roll, pitch, and yaw rate from a recorded desired root trajectory. Never use measured positions as desired actions without labeling that approximation. |
+| 14 Dex3 hand targets | 14 Dex3 hand channels | Dimensions now match; verify joint order, units, and limits before treating them as compatible. |
 | task text | `instruction` | Preserve the exact per-episode instruction. |
 | 50 Hz frames | `timestamp_s` | Confirm actual frame intervals; do not synthesize timestamps for dropped frames. |
 | simulator root state | `base_quat_wxyz` | Extract measured floating-base quaternion in `wxyz`; the standard LeRobot recorder does not expose it as a named feature, so capture it separately or recover and verify it from simulator state. |
 
-The absent root orientation/reference and the 14-to-2 hand mismatch prevent a
-faithful automatic converter today. A successful SIMPLE episode should first be
+The absent desired root reference still prevents a faithful automatic converter
+today. A successful SIMPLE episode should first be
 audited for field names, shapes, joint order, and timestamps. Then add a
 conversion tool with an explicit hand policy and root-reference derivation,
 followed by a SONIC encode/decode round trip and a replay comparison.

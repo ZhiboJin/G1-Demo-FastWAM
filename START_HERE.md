@@ -18,7 +18,7 @@ is currently no FastWAM-to-SIMPLE inference bridge in this repository.
 ## What runs now
 
 ```text
-scripted reference [T,34] -> SONIC encoder -> 64-D token
+scripted reference [T,46] -> SONIC encoder -> 64-D token
     -> SONIC decoder + measured state history -> 29 body joint targets -> MuJoCo G1
                          └─ left/right end-effector commands -> callback
 ```
@@ -33,16 +33,15 @@ The intended learned path is:
 
 ```text
 language instruction + uint8 RGB camera frame + 29 measured body angles
-    -> FastWAMPolicy.predict() -> [T,34] physical-unit reference
+    -> FastWAMPolicy.predict() -> [T,46] physical-unit reference
     -> same SONIC encoder/decoder and end-effector routing
 ```
 
-The 34 values are 29 absolute body angles, three root orientation channels,
-and one placeholder scalar for each hand. SONIC handles the body and root
-reference. Its released graphs have no hand inputs or outputs, so the two hand
-values travel separately. `WholeBodyController.run(on_hand_command=...)` emits
-them each tick; MuJoCo's 29-DoF model does not contain hands. No physical hand
-driver is selected or wired yet.
+The 46 values are 29 absolute body angles, three root orientation channels,
+and seven Dex3 joint targets per hand. SONIC encodes the body and root reference;
+its graphs have no hand inputs or outputs. `WholeBodyController.run(on_hand_command=...)`
+emits both 7-joint hand arrays each tick. The local 29-DoF MuJoCo model does not
+contain hands, so this callback has no physical hand effect yet.
 
 ## Where to look
 
@@ -66,16 +65,16 @@ driver is selected or wired yet.
 ## What is still required
 
 1. Train a G1 FastWAM checkpoint with this exact action order and fit **separate**
-   34-channel action and 29-channel proprioception mean/scale statistics. The
+   46-channel action and 29-channel proprioception mean/scale statistics. The
    released LIBERO/RoboTwin heads are incompatible. `FastWAMPolicy.load()`,
    `set_normalizer()`, and `set_proprio_normalizer()` take these inputs.
 2. Supply a synchronized RGB camera frame to `FastWAMPolicy.predict()` or an
    `observation_provider(sim)` to `actions()`. The image must be RGB uint8 with
    height and width divisible by 16. Select camera, crop, and resolution during
    training and keep them the same at inference.
-3. Specify the real end effectors: model, command units, limits, 50 Hz transport,
-   and emergency behavior. Replace the one-scalar placeholders in
-   `configs/action_space.json` as needed and implement the hand callback.
+3. Validate the Dex3 hand joint limits, 50 Hz command transport, and emergency
+   behavior. The 7+7 channel order is in `configs/action_space.json`; implement
+   the hand callback for real hardware or SIMPLE's hand model.
 4. Compare the Python SONIC command against NVIDIA's `deploy.sh sim` on the
    same reference and state trace. Resolve the MuJoCo plant gap before trying
    free-base motion or sending commands to the physical G1.

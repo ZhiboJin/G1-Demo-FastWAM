@@ -84,6 +84,11 @@ class TestContract(unittest.TestCase):
     def test_action_names_match_width(self):
         c = contract()
         self.assertEqual(len(c.action_names()), c.action_dim)
+        self.assertEqual(c.action_dim, 46)
+        self.assertEqual(c.hand_sizes, {"left": 7, "right": 7})
+        for side in ("left", "right"):
+            block = c[f"{side}_end_effector"]
+            self.assertEqual(c.action_names()[block.slice], list(c.hand_joint_names[side]))
 
     def test_flat_indices_map_contract_joint_to_its_slot(self):
         """The contract groups joints differently from MuJoCo, so this must reorder."""
@@ -295,10 +300,12 @@ class TestSonicGraphs(unittest.TestCase):
     def test_hands_bypass_the_encoder(self):
         first = self.encoder.encode(self.chunk, [1, 0, 0, 0], 0.0)
         altered = self.chunk.copy()
-        altered[:, 7] = 0.73
-        altered[:, 15] = -0.42
+        altered[:, contract()["left_end_effector"].slice] = 0.73
+        altered[:, contract()["right_end_effector"].slice] = -0.42
         second = self.encoder.encode(altered, [1, 0, 0, 0], 0.0)
         np.testing.assert_array_equal(first["token"], second["token"])
+        self.assertEqual(second["left_hand"].shape, (7,))
+        self.assertEqual(second["right_hand"].shape, (7,))
         np.testing.assert_allclose(second["left_hand"], 0.73)
         np.testing.assert_allclose(second["right_hand"], -0.42)
 
@@ -464,6 +471,8 @@ class TestClosedLoop(unittest.TestCase):
         )
         self.assertEqual(len(received), 3)
         for left, right in received:
+            self.assertEqual(left.shape, (7,))
+            self.assertEqual(right.shape, (7,))
             np.testing.assert_allclose(left, 0.25)
             np.testing.assert_allclose(right, 0.75)
 
@@ -647,7 +656,8 @@ class TestStage2Data(unittest.TestCase):
             with np.load(output, allow_pickle=False) as data:
                 self.assertEqual(data["sonic_token"].shape, (1, 64))
                 self.assertEqual(data["latent_action"].shape,
-                                 (1, 64 + sum(contract().hand_sizes.values())))
+                                 (1, 78))
+                self.assertEqual(data["action_ref"].shape, (1, 46))
                 self.assertTrue(np.isfinite(data["latent_action"]).all())
 
     def test_prepared_rows_align_observation_token_and_hands(self):
@@ -680,6 +690,7 @@ class TestStage2Data(unittest.TestCase):
                 self.assertEqual(data["sonic_token"].shape, (3, 64))
                 np.testing.assert_array_equal(data["sonic_token"][:, 0], [0, 1, 2])
                 np.testing.assert_array_equal(data["left_hand"][:, 0], [0, 1, 2])
+                np.testing.assert_array_equal(data["action_ref"], actions[:3].astype(np.float32))
                 self.assertEqual(str(data["instruction"]), "raise the right hand")
 
 

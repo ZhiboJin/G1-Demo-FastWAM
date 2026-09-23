@@ -16,9 +16,9 @@ demonstrating the chain in MuJoCo.
                      │
                  FastWAM                      predicts an action chunk
                      │
-             [T, 34] physical references
+             [T, 46] physical references
              ├──────────────────────────────┐
-             │ 29 body joints + 3 root      │  left / right hand commands
+             │ 29 body joints + 3 root      │  7 left + 7 right Dex3 joints
              ▼                              ▼
    SONIC v1.1 encoder  (incl. FSQ)      BYPASSED by SONIC
              │
@@ -51,7 +51,7 @@ repository does not yet connect FastWAM to that SIMPLE interface. See
 
 | Piece | State |
 |---|---|
-| 34-D action contract, joint ordering, limits | **Working**, verified against NVIDIA's source |
+| 46-D action contract, joint ordering, limits | **Working**, verified against NVIDIA's source and SIMPLE's Dex3 order |
 | SONIC v1.1 encoder (1751 → 64, incl. FSQ) | **Working** — real released ONNX graph |
 | SONIC v1.1 decoder (994 → 29) | **Working** — real released ONNX graph |
 | `q_target = default + action * scale` convention | **Resolved from source**; previously an open question |
@@ -178,7 +178,7 @@ large source checkout.
 
 ```text
 g1demo/
-  contract.py        the 34-D action layout — the single source of truth
+  contract.py        the 46-D action layout — the single source of truth
   sonic_params.py    G1 constants, and the joint-order conversions
   paths.py           where the repos, checkpoints and outputs live
   sonic/
@@ -258,10 +258,10 @@ encoder and decoder then need **no** SONIC checkout at all.
    `bridge-export` writes the reference clip that step needs. This is the single
    measurement that turns the decoder output into a verified motor command.
 2. **Train a G1 FastWAM head.** Upstream ships LIBERO and RoboTwin checkpoints
-   whose action heads are 7- and 14-wide; neither can drive a 34-wide G1 head.
+   whose action heads are 7- and 14-wide; neither can drive a 46-wide G1 head.
    `FastWAMPolicy.predict()` is wired to the upstream inference API and needs a
    G1 checkpoint plus action/proprioception statistics and an RGB camera frame.
-3. **Choose the hands.** `configs/action_space.json` currently carries one scalar
-   per hand as a placeholder. Choose the actual command size, update both
-   `action_dim` values in `configs/fastwam_g1.yaml`, and supply a driver via
-   `on_hand_command`; this simulator has no hand actuators.
+3. **Validate the Dex3 hands.** `configs/action_space.json` now names seven
+   joints per hand in SIMPLE's order. Verify physical joint limits and command
+   transport, then supply a driver via `on_hand_command`; this simulator has no
+   hand actuators.

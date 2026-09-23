@@ -7,7 +7,7 @@ instruction + cameras + measured joints
         │
     FastWAM  (Wan2.2 video expert + ActionDiT + MoT)
         │
-   [T, 34] action chunk, physical units, 50 Hz
+   [T, 46] action chunk, physical units, 50 Hz
         │
         ├─ 29 body joints (rad) ─┐         ┌─ left hand  (size from config)
         └─ 3 root channels ──────┤         └─ right hand (size from config)
@@ -29,7 +29,7 @@ instruction + cameras + measured joints
 
 Everything left of the G1 is Python and runs on CPU. FastWAM itself needs CUDA;
 no upstream G1 checkpoint exists, so the demo substitutes a scripted reference that
-emits the identical `[T, 34]` interface.
+emits the identical `[T, 46]` interface.
 
 ## Local test versus SIMPLE's full SONIC path
 
@@ -48,30 +48,34 @@ Unitree bridge forwards the controller's low-level commands to MuJoCo. The
 current example policy server is Psi-0 over HTTP. No FastWAM server or adapter
 for this interface has been implemented here.
 
-For the intended language-driven demo in SIMPLE, use the full controller and
-choose one explicit model output contract. Predicting `[T,78]` tokens/hands
-fits SIMPLE's existing evaluation path and bypasses the SONIC encoder at
-inference. Predicting `[T,34]` references preserves this repository's current
-encoder path, but requires a new reference-stream bridge and a real 14-joint
-Dex3 hand representation. Neither integration has been validated yet.
+The selected FastWAM output is `[T,46]` physical references: 29 body joints,
+three root channels and 14 Dex3 hand joints. At 50 Hz, each SONIC mode-0 token
+uses 10 future reference samples at offsets `0,5,...,45`, so a chunk needs at
+least 46 frames. The local encoder makes the 64-value FSQ token; the two hand
+arrays bypass it. To use SIMPLE's existing controller, a new bridge must send
+`[token(64), left_hand(7), right_hand(7)]` to its 78-value ZMQ path. In that
+route the **official C++ controller** decodes the token and commands the robot;
+our Python decoder remains a local validation tool. The bridge and a trained
+FastWAM checkpoint are not implemented yet.
 
-## The 34-D action contract
+## The 46-D action contract
 
-`configs/action_space.json` is authoritative. With one scalar per hand:
+`configs/action_space.json` is authoritative. With seven Dex3 joints per hand:
 
 | Slice | Meaning | Routed to |
 |---|---|---|
 | `0:7` | left arm joints | encoder |
-| `7:8` | left hand | **bypass** |
-| `8:15` | right arm joints | encoder |
-| `15:16` | right hand | **bypass** |
-| `16:22` | left leg joints | encoder |
-| `22:28` | right leg joints | encoder |
-| `28:31` | waist joints | encoder |
-| `31:34` | root roll, pitch, yaw-rate | encoder orientation reference |
+| `7:14` | left Dex3 hand joints | **bypass** |
+| `14:21` | right arm joints | encoder |
+| `21:28` | right Dex3 hand joints | **bypass** |
+| `28:34` | left leg joints | encoder |
+| `34:40` | right leg joints | encoder |
+| `40:43` | waist joints | encoder |
+| `43:46` | root roll, pitch, yaw-rate | encoder orientation reference |
 
-Joint values are absolute radians. Root units are rad, rad, rad/s. Hand units are
-placeholders until hardware is chosen.
+Joint and Dex3 hand values are absolute radians. Root units are rad, rad,
+rad/s. The hand ordering follows SIMPLE's G1 SONIC robot definition, but hand
+limits and physical command transport still need validation.
 
 `g1demo/contract.py` parses this once per process and derives every slice, so
 changing a hand size updates packing and the contract width. Update both

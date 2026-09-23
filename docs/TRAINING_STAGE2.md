@@ -2,7 +2,7 @@
 
 The goal is a language-conditioned G1 demo in an environment: an egocentric RGB
 frame and measured robot state go into a policy; the policy emits a whole-body
-SONIC command and separate end-effector commands. The existing 34-channel joint
+SONIC command and separate end-effector commands. The existing 46-channel joint
 reference demo verifies one execution path. `g1demo/stage2_data.py` now prepares
 an alternative latent target for learning.
 
@@ -27,20 +27,28 @@ Reusing FastWAM is feasible as an **engineering variant**, not a reproduction of
 MotionWAM Stage 2. Do not label a generic Wan2.2 or released LIBERO FastWAM
 checkpoint as a completed MotionWAM Stage-1 checkpoint.
 
-## Implemented data boundary
+## Selected FastWAM output and data boundary
+
+FastWAM is configured to predict `[T,46]` physical references: 29 body angles,
+three root channels, and 7+7 Dex3 hand angles. The SONIC encoder runs **after**
+FastWAM prediction; it is not part of FastWAM's output head. The resulting
+`[64-token, 7 left hand, 7 right hand]` packet has width 78 for SIMPLE's
+external controller. The current repository has no trained G1 policy or
+FastWAM-to-SIMPLE transport bridge.
 
 `python -m g1demo.cli prepare-stage2 --episode RAW.npz --out PREPARED.npz`
 validates a synchronized 50 Hz episode and runs each 46-frame desired reference
 window through the released SONIC v1.1 encoder. It keeps hands separate and
-also writes `[sonic_token(64), left_hand, right_hand]` as `latent_action` for a
-continuous-action FastWAM baseline. With the current one-value-per-hand contract,
-that is 66 values. These are FSQ **vectors**, not MotionWAM's learned discrete
-index representation. A predicted vector needs projection/quantization or a
-discrete-index head before use with the SONIC decoder; that model and runtime
-adapter have not been built.
-SIMPLE's current SONIC evaluator instead expects 78 values: the same 64-token
-body channel plus 7 joint commands for each Dex3 hand. The 66-value research
-baseline cannot be sent to that evaluator unchanged.
+also writes `[sonic_token(64), left_hand(7), right_hand(7)]` as `latent_action`
+for downstream inspection and an optional latent-action baseline. With the
+current Dex3 contract, that is 78 values. These are FSQ **vectors**, not
+MotionWAM's learned discrete index representation. Do not train the selected
+46-output FastWAM head on `latent_action`; train it on `action_ref` with matching
+normalization statistics. The prepared file now retains the aligned
+`action_ref` rows, but a G1 training loader is still needed.
+SIMPLE's current SONIC evaluator also expects 78 values: the same 64-token
+body channel plus 7 joint commands for each Dex3 hand. The paper's 66-value
+two-gripper contract cannot be sent to that evaluator unchanged.
 
 Required raw episode `.npz` keys (all arrays aligned by frame index):
 
@@ -49,7 +57,7 @@ Required raw episode `.npz` keys (all arrays aligned by frame index):
 | `rgb` | `uint8 [T,H,W,3]`, head RGB, H and W divisible by 16 |
 | `joint_pos` | `[T,29]` measured body angles, MuJoCo/SONIC deployment order |
 | `base_quat_wxyz` | `[T,4]` measured root orientation |
-| `action_ref` | `[T,34]` **desired** body/root/hand reference in `action_space.json` order |
+| `action_ref` | `[T,46]` **desired** body/root/Dex3 reference in `action_space.json` order |
 | `timestamp_s` | `[T]`, monotonic with 20 ms intervals |
 | `instruction`, `task_id` | non-empty scalar strings |
 
@@ -64,10 +72,10 @@ same rollout; fit action/proprioception statistics on the training split only.
 
 Keep upstream `robotics/FastWAM/` intact. Its Hydra training entry point,
 flow-matching action expert, video loader, processors, and text cache are useful.
-The local G1 work still needs a dataset adapter from prepared episodes to its
-LeRobot `RobotVideoDataset` schema, a 66-channel action config, masking for any
-heterogeneous hand layout, and a latent output adapter for SONIC. Train a small
-overfit batch before a full run. The current laptop has an 8 GB GPU and no
+The local G1 work still needs a dataset adapter from converted episodes to its
+LeRobot `RobotVideoDataset` schema, supervised `[T,46]` reference targets,
+action/proprioception statistics, and a post-model encoder-to-SIMPLE bridge.
+Train a small overfit batch before a full run. The current laptop has an 8 GB GPU and no
 Stage-1 or G1 checkpoint installed; full FastWAM training needs larger compute.
 
 ## SIMPLE task decision
@@ -87,8 +95,8 @@ their raw actions as if they were already the same SONIC reference format. For
 Stage 2, use MP rollouts only after conversion to 29 joint references, hand
 commands, 50 Hz camera/state alignment, and round-trip SONIC tests. The MP
 recorder writes 43 targets, including 14 Dex3 finger joints, whereas this
-repo's present action contract has only two scalar hand channels. Choose a
-Dex3 hand representation or an explicit, validated reduction before training.
+repo's present action contract has 14 named Dex3 hand channels. Convert and
+reorder them explicitly by joint name, and verify limits before training.
 Keep the
 SONIC carry-box task as the closest eventual demo, even if its teleop data comes
 later. The full SIMPLE installation includes Isaac Sim 4.5, but the local

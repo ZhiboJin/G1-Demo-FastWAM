@@ -1,6 +1,6 @@
 # G1 model-only configuration, compatible with fastwam.runtime.create_fastwam.
 # No LIBERO/RoboTwin dataset dependency. Training/data config is intentionally deferred.
-# Action: 29 absolute joint angles + left/right hands (1 each) + root roll/pitch/yaw-rate.
+# Action: 29 absolute body joints + left/right Dex3 joints (7 each) + root roll/pitch/yaw-rate.
 # Order and hand sizes: action_space.json; update BOTH action_dim values when sizes change.
 # Proprioception: 29 measured joint angles in MuJoCo order.
 # The text encoder is required for direct language-instruction inference.
@@ -41,11 +41,11 @@ video_dit_config:
   use_gradient_checkpointing: false
   video_attention_mask_mode: "first_frame_causal" # default
   action_conditioned: false
-  action_dim: 34
+  action_dim: 46
   action_group_causal_mask_mode: "group_diagonal"
 
 action_dit_config:
-  action_dim: 34
+  action_dim: 46
   hidden_dim: 1024
   ffn_dim: 4096
   num_heads: 24

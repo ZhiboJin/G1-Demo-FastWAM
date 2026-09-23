@@ -59,6 +59,7 @@ class Contract:
     joint_groups: Mapping[str, tuple[str, ...]]
     joint_names: tuple[str, ...]
     hand_sizes: Mapping[str, int]
+    hand_joint_names: Mapping[str, tuple[str, ...]]
     _by_name: Mapping[str, Block]
 
     # -- dimensions -------------------------------------------------------
@@ -87,8 +88,8 @@ class Contract:
     def pack(self, blocks: Mapping[str, Iterable[float]]) -> np.ndarray:
         """Build a flat action vector from named blocks.
 
-        Missing blocks are zero-filled, which is what the demo wants for the
-        root and hand placeholders. Present blocks must be finite and the right
+        Missing blocks are zero-filled, which is what the scripted demo wants for
+        the root and hands. Present blocks must be finite and the right
         length; silently truncating a malformed block would corrupt the encoder
         reference, so it is rejected instead.
         """
@@ -136,11 +137,7 @@ class Contract:
                 names.extend(["root_roll_rad", "root_pitch_rad", "root_yaw_rate_rad_s"])
             else:  # hand blocks
                 side = block.name.split("_")[0]
-                size = self.hand_sizes[side]
-                names.extend(
-                    f"{side}_hand_{i}" if size > 1 else f"{side}_hand"
-                    for i in range(size)
-                )
+                names.extend(self.hand_joint_names[side])
         return names
 
     def flat_indices_for(self, joint_order: Iterable[str]) -> np.ndarray:
@@ -181,6 +178,12 @@ def _load(path: Path) -> Contract:
     hand_sizes = {side: int(cfg["size"]) for side, cfg in raw["end_effectors"].items()}
     if set(hand_sizes) != {"left", "right"}:
         raise ValueError("Contract must define left and right end effectors")
+    hand_joint_names = {
+        side: tuple(cfg["joint_names"]) for side, cfg in raw["end_effectors"].items()
+    }
+    for side, names in hand_joint_names.items():
+        if len(names) != hand_sizes[side] or len(set(names)) != len(names):
+            raise ValueError(f"{side} hand joint names must be {hand_sizes[side]} unique names")
 
     blocks: list[Block] = []
     cursor = 0
@@ -210,6 +213,7 @@ def _load(path: Path) -> Contract:
         joint_groups=groups,
         joint_names=joint_names,
         hand_sizes=hand_sizes,
+        hand_joint_names=hand_joint_names,
         _by_name={block.name: block for block in blocks},
     )
 

@@ -1,7 +1,7 @@
 {
   "schema": "openhlm_style_g1_v1",
   "joint_size_each": 1,
-  "units": {"joint_position": "radian", "root": "roll_rad,pitch_rad,yaw_rate_rad_per_s"},
+  "units": {"joint_position": "radian", "end_effector": "Dex3 joint position in radians", "root": "roll_rad,pitch_rad,yaw_rate_rad_per_s"},
   "joint_groups": {
     "left_arm": ["left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_joint", "left_wrist_roll_joint", "left_wrist_pitch_joint", "left_wrist_yaw_joint"],
     "right_arm": ["right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint", "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint"],
@@ -10,8 +10,8 @@
     "waist": ["waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"]
   },
   "end_effectors": {
-    "left": {"size": 1, "EDIT_ME": "Set dimension for your real left hand/end-effector; currently gripper placeholder"},
-    "right": {"size": 1, "EDIT_ME": "Set dimension for your real right hand/end-effector; currently gripper placeholder"}
+    "left": {"size": 7, "joint_names": ["left_hand_thumb_0_joint", "left_hand_thumb_1_joint", "left_hand_thumb_2_joint", "left_hand_index_0_joint", "left_hand_index_1_joint", "left_hand_middle_0_joint", "left_hand_middle_1_joint"]},
+    "right": {"size": 7, "joint_names": ["right_hand_thumb_0_joint", "right_hand_thumb_1_joint", "right_hand_thumb_2_joint", "right_hand_index_0_joint", "right_hand_index_1_joint", "right_hand_middle_0_joint", "right_hand_middle_1_joint"]}
   },
   "root_size": 3,
   "order": ["left_arm", "left_end_effector", "right_arm", "right_end_effector", "left_leg", "right_leg", "waist", "root"]
