@@ -132,3 +132,21 @@
 - Clone this repository with `--recurse-submodules` or run
   `git submodule update --init` after cloning. SONIC ONNX checkpoints and SIMPLE
   rollouts are local downloaded/generated data, not GitHub commit contents.
+# Fresh-clone check (2026-09-23)
+
+- Cloned the public `main` branch into `/tmp/g1-demo-clone-smoke` at
+  `93826a3d5ec5b657adbfefc9f7a87f46d1138f24`.
+- Installed the pinned MuJoCo Menagerie submodule alone. The full SONIC source
+  checkout failed once during a large Git transfer; it is unnecessary for the
+  ONNX standing demo, so the quickstart now leaves it optional.
+- Created the documented virtual environment with system Python 3.14.6 and
+  installed `requirements.txt` successfully.
+- Downloaded the public SONIC v1.1 ONNX checkpoints in the fresh clone; both
+  hashes matched the verified release. This machine needed its incompatible
+  `ALL_PROXY=socks://...` setting unset so Hugging Face could use its HTTP proxy.
+- `verify` passed 16/16. `demo --motion standing --action-gain 0.5` completed
+  250 ticks / 5 seconds, `fell=False`, using the fresh-clone Menagerie model.
+- The documented test command now passes from this minimal checkout:
+  60 tests, 2 skips for optional PyTorch/SONIC source, 1 expected failure.
+- This validates the scripted SONIC simulation path. It does not validate a
+  language-driven FastWAM checkpoint, SIMPLE task success, hands, or hardware.

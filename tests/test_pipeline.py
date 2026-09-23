@@ -9,6 +9,7 @@ download-sonic``); they skip with a clear message when those are absent.
 """
 from __future__ import annotations
 
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -28,6 +29,10 @@ HAVE_SONIC = (CHECKPOINTS / "model_encoder.onnx").exists() and (
     CHECKPOINTS / "model_decoder.onnx"
 ).exists()
 SONIC_SKIP = "SONIC v1.1 graphs not downloaded (run: python -m g1demo.cli download-sonic)"
+HAVE_TORCH = importlib.util.find_spec("torch") is not None
+HAVE_SONIC_SOURCE = (
+    ROOT / "third_party/GR00T-WholeBodyControl/gear_sonic_deploy/deploy.sh"
+).exists()
 
 
 def default_chunk(frames: int = 60) -> np.ndarray:
@@ -351,6 +356,7 @@ class TestSimulator(unittest.TestCase):
         with self.assertRaises(ValueError):
             G1Sim(gains="magic")
 
+    @unittest.skipUnless(HAVE_SONIC_SOURCE, "optional SONIC source submodule not initialized")
     def test_model_sources_agree_on_joint_order(self):
         from g1demo import sonic_params as sp
         from g1demo.sim import GAINS_NATIVE, SOURCE_NVIDIA, G1Sim
@@ -574,6 +580,7 @@ class TestScriptedReference(unittest.TestCase):
 
 
 class TestFastWAMAdapter(unittest.TestCase):
+    @unittest.skipUnless(HAVE_TORCH, "optional FastWAM PyTorch dependency not installed")
     def test_observation_and_normalization_reach_infer_action(self):
         from g1demo.policy import FastWAMPolicy
 

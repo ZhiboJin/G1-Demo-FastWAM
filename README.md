@@ -107,8 +107,12 @@ access. That is not a driver fault: the same commands work in a normal shell.
 ## Quickstart
 
 ```bash
-# 1. Official SONIC source and G1 MuJoCo model, pinned in this repository.
-git submodule update --init
+# 0. Clone your development repository.
+git clone https://github.com/ZhiboJin/G1-Demo-FastWAM.git
+cd G1-Demo-FastWAM
+
+# 1. G1 MuJoCo model. The full SONIC source is optional for this demo.
+git submodule update --init --depth 1 third_party/mujoco_menagerie
 
 # 2. Environment (kept inside the repo; the demo needs no GPU)
 python3 -m venv --system-site-packages .venv-model
@@ -134,6 +138,10 @@ Path resolution lives in `g1demo/paths.py`. `MENAGERIE_REPO`, `SONIC_REPO` and
 `FastWAM/` and `SIMPLE/`; SONIC and Menagerie are pinned submodules in this
 repository. SIMPLE supplies simulation tasks and data; the original FastWAM
 checkout supplies the policy code when a trained checkpoint is available.
+If you need NVIDIA's full SONIC source for the C++ comparison or URDF tools,
+run `git submodule update --init --depth 1 third_party/GR00T-WholeBodyControl`.
+The standing demo uses SONIC's downloaded ONNX graphs and does not need that
+large source checkout.
 
 ## Commands
 

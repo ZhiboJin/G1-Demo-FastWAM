@@ -186,9 +186,6 @@ class FastWAMPolicy:
         Raises with an actionable message when the pieces are absent, rather than
         failing later inside a forward pass.
         """
-        import torch
-        import yaml
-
         if self.checkpoint is None or not self.checkpoint.exists():
             raise FileNotFoundError(
                 "No G1 FastWAM checkpoint. Upstream FastWAM ships LIBERO/RoboTwin "
@@ -196,6 +193,9 @@ class FastWAMPolicy:
                 "G1. Train a 34-wide head first, or use ScriptedReference to exercise "
                 "the SONIC half of the pipeline."
             )
+        import torch
+        import yaml
+
         add_fastwam_to_path()
 
         c = contract()

@@ -4,7 +4,10 @@ This is the **G1-Demo-FastWAM** git repository at
 `robotics/G1-Demo-FastWAM/`. Its sibling `robotics/FastWAM/` is a separate checkout
 of the upstream FastWAM research code. This repository pins the unmodified
 official SONIC and MuJoCo Menagerie sources as Git submodules under `third_party/`.
-After cloning, run `git submodule update --init` to populate them.
+For the standing demo after cloning, populate only the G1 model with
+`git submodule update --init --depth 1 third_party/mujoco_menagerie`.
+The full SONIC source submodule is optional for source comparison and URDF tools;
+the demo uses its released ONNX graphs, downloaded separately.
 The local `g1demo/sonic/` folder is a small adapter to SONIC's released ONNX
 encoder and decoder, not a replacement for SONIC.
 

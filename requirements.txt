@@ -10,8 +10,8 @@ matplotlib>=3.8
 huggingface_hub>=0.20
 
 # Only needed by G1Policy: running the real FastWAM model.
-# Upstream FastWAM pins Python 3.10 with CUDA PyTorch; install it from
-# requirements-fastwam.txt rather than mixing it into the demo environment.
+# Upstream FastWAM pins Python 3.10 with CUDA PyTorch; install its own
+# dependencies in a separate environment rather than mixing them into the demo.
 #   torch==2.7.1+cu128
 #   torchvision==0.22.1+cu128
 #   einops, safetensors, transformers, ftfy, imageio, imageio-ffmpeg, rich
