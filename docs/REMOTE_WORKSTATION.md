@@ -34,7 +34,8 @@ readiness or task success.
 - SIMPLE source is a compact snapshot at
   `6d10628794d9c7de4596b4f2afb2c054a637c2bc`, excluding large policy
   assets and submodules. It supports reading interfaces only; it cannot launch
-  a SIMPLE task or the full SONIC controller as installed.
+  a SIMPLE task or the full SONIC controller as installed. No SONIC C++ build
+  was attempted; this is not a compiler failure.
 
 ## Work still required
 
@@ -51,8 +52,13 @@ readiness or task success.
    released LIBERO FastWAM weights do not provide a language-to-G1 demo.
 
 The remote cannot currently reach Hugging Face directly (`Network is
-unreachable`). GitHub transfers have been slow or reset, and Tailscale reports
-a DERP relay instead of a direct connection. This is the present obstacle to
-installing the large checkpoints; adding GPU memory alone does not solve it.
+unreachable`). It has no proxy configured. Its DNS answer for `huggingface.co`
+differs from the laptop's, and forcing a connection to the laptop's resolved
+address produced a connection reset. GitHub transfers have been slow or reset,
+and Tailscale reports a DERP relay instead of a direct connection. This is the
+present obstacle to installing the large checkpoints; adding GPU memory alone
+does not solve it. A working HTTPS proxy/VPN on the remote, or transfer from a
+machine with good connectivity, is needed. Hugging Face downloads may also
+redirect to `hf.co` storage/CDN hosts.
 
 No EngineAI project or files were changed during this bring-up.
