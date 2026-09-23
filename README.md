@@ -133,6 +133,11 @@ export HF_HOME=$PWD/.cache/huggingface
 .venv-model/bin/python -m unittest discover -s tests
 ```
 
+If the download reports `Unknown scheme for proxy URL ... socks://`, this
+machine's `ALL_PROXY` setting is incompatible with the Hugging Face client.
+With an HTTP proxy already configured, retry step 3 as
+`env -u ALL_PROXY -u all_proxy HF_HOME=$PWD/.cache/huggingface .venv-model/bin/python -m g1demo.cli download-sonic`.
+
 Path resolution lives in `g1demo/paths.py`. `MENAGERIE_REPO`, `SONIC_REPO` and
 `FASTWAM_REPO` override the default locations. This checkout lives beside
 `FastWAM/` and `SIMPLE/`; SONIC and Menagerie are pinned submodules in this
