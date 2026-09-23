@@ -199,3 +199,28 @@
   60 tests, 2 skips for optional PyTorch/SONIC source, 1 expected failure.
 - This validates the scripted SONIC simulation path. It does not validate a
   language-driven FastWAM checkpoint, SIMPLE task success, hands, or hardware.
+
+## 2026-09-23 — 48 GB GPU workstation bring-up
+
+- Cloned this repository at `10a3c648dc3592554cfa395bf99cbcd3b6db79da`
+  into `/home/justin/projects/G1-Demo-FastWAM` on the remote workstation.
+  Verified PyTorch 2.7.1+cu128 sees its 47.5 GiB RTX 4090; the machine also
+  has 62 GiB RAM and about 1.2 TB free disk.
+- Reused the workstation's existing FastWAM Python 3.10 environment through an
+  isolated `.venv-model` and added the locally verified ONNX Runtime 1.23.2.
+  Linked `/home/justin/projects/FastWAM` to the existing upstream checkout,
+  which contains the released LIBERO and ActionDiT checkpoints. Neither is a
+  trained G1 policy.
+- Copied the pinned Menagerie G1 assets from the local checkout after the
+  remote submodule clone failed; the transfer checksum matched. The remote
+  test suite now reports `48 passed, 12 skipped, 1 xfailed`. The Menagerie
+  submodule is still formally uninitialized, though its G1 files are present.
+  The SONIC v1.1 ONNX graphs are absent, so the full encoder/decoder chain is
+  not yet validated on this workstation.
+- Direct Hugging Face access returned `Network is unreachable`, GitHub dropped
+  the Menagerie submodule clone, and the Tailscale path is relayed through
+  DERP. A compact SIMPLE source snapshot from commit
+  `6d10628794d9c7de4596b4f2afb2c054a637c2bc` is present in
+  `/home/justin/projects/SIMPLE` for interface inspection. It is not a full
+  SIMPLE installation: its SONIC fork, checkpoints, and controller binary are
+  absent. See `docs/REMOTE_WORKSTATION.md`.
