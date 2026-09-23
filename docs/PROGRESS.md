@@ -1,5 +1,21 @@
 # Continuation log
 
+## 2026-09-23 — SONIC provenance and adapter audit
+
+- Confirmed SIMPLE is the separate sibling checkout at
+  `/home/justin/robotics/SIMPLE` (`6d10628794d9c7de4596b4f2afb2c054a637c2bc`),
+  rather than a directory in the GitHub development repository.
+- Checked the installed SONIC v1.1 ONNX SHA-256 values against NVIDIA's live
+  Hugging Face file metadata; encoder and decoder both match exactly. The local
+  observation YAML is byte-identical to the pinned official GitHub checkout.
+- Compared official C++ `GatherHisGravityDir` with our decoder packing, found
+  that it uses each historical frame's quaternion, and corrected the Python
+  simulation loop to retain and supply that orientation history.
+- After the fix: 61 unit tests pass (one expected failure), `verify` passes
+  16/16, and the 250-tick standing demo at gain 0.5 reports `fell=False`.
+- Still need same-state C++/Python replay for end-to-end deployment parity;
+  reference velocity and heading construction differ by data source.
+
 ## 2026-09-23 — installation guide
 
 - Added `INSTALL.md` with the minimal fresh-clone path that was exercised:

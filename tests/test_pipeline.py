@@ -250,6 +250,21 @@ class TestDecoderMath(unittest.TestCase):
         quat = [np.cos(half), 0.0, np.sin(half), 0.0]  # 90 deg about +y
         np.testing.assert_allclose(gravity_direction(quat), [1, 0, 0], atol=1e-9)
 
+    def test_gravity_history_uses_each_frame_orientation(self):
+        from g1demo.sonic.decoder import SLICES, pack_observation
+
+        identity = [1.0, 0.0, 0.0, 0.0]
+        pitched = [np.cos(np.pi / 4), 0.0, np.sin(np.pi / 4), 0.0]
+        quats = np.array([identity] * 9 + [pitched])
+        obs = pack_observation(
+            np.zeros(64), np.zeros((10, 29)), np.zeros((10, 29)),
+            np.zeros((10, 29)), np.zeros((10, 3)), pitched,
+            base_quat_history=quats,
+        )
+        gravity = obs[0, SLICES["his_gravity_dir_10frame_step1"]].reshape(10, 3)
+        np.testing.assert_allclose(gravity[0], [0, 0, -1], atol=1e-6)
+        np.testing.assert_allclose(gravity[-1], [1, 0, 0], atol=1e-6)
+
     def test_pack_rejects_wrong_history_shape(self):
         from g1demo.sonic.decoder import pack_observation
 

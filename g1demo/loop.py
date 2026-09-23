@@ -78,6 +78,7 @@ class History:
     joint_vel: np.ndarray
     last_action: np.ndarray
     base_ang_vel: np.ndarray
+    base_quat: np.ndarray
 
     @classmethod
     def from_state(cls, sim: G1Sim) -> History:
@@ -88,6 +89,7 @@ class History:
             joint_vel=np.repeat(velocity[None, :], NUM_FRAMES, axis=0),
             last_action=np.zeros((NUM_FRAMES, 29), dtype=np.float64),
             base_ang_vel=np.repeat(sim.base_ang_vel_body[None, :], NUM_FRAMES, axis=0),
+            base_quat=np.repeat(sim.base_quat_wxyz[None, :], NUM_FRAMES, axis=0),
         )
 
     def push(self, sim: G1Sim, raw_action: np.ndarray) -> None:
@@ -100,6 +102,7 @@ class History:
         self.base_ang_vel = np.vstack(
             (self.base_ang_vel[1:], sim.base_ang_vel_body)
         )
+        self.base_quat = np.vstack((self.base_quat[1:], sim.base_quat_wxyz))
 
 
 @dataclass
@@ -222,6 +225,7 @@ class WholeBodyController:
                 last_action_history=history.last_action,
                 base_ang_vel_history=history.base_ang_vel,
                 base_quat_wxyz=sim.base_quat_wxyz,
+                base_quat_history=history.base_quat,
             )
             q_target = q_target_from_action(raw_action * self.action_gain)
             saturated = (q_target < joint_lower()) | (q_target > joint_upper())

@@ -38,6 +38,10 @@ standing pose* (the C++ subtracts ``default_angles``); use
 
 Hands are absent by design: the decoder has no hand outputs, and hand commands
 travel on a separate channel in NVIDIA's deployment.
+
+The official deployment computes gravity from each logged frame's quaternion.
+Pass ``base_quat_history`` for that behavior; a single current quaternion is
+accepted for standalone probes and repeated across the window.
 """
 from __future__ import annotations
 
@@ -110,7 +114,7 @@ def _history(values, name: str, width: int) -> np.ndarray:
 
 def pack_observation(token, joint_pos_history, joint_vel_history,
                      last_action_history, base_ang_vel_history,
-                     base_quat_wxyz) -> np.ndarray:
+                     base_quat_wxyz, base_quat_history=None) -> np.ndarray:
     """Assemble the ``[1, 994]`` decoder input.
 
     ``joint_pos_history``, ``joint_vel_history`` and ``last_action_history`` are
@@ -122,9 +126,18 @@ def pack_observation(token, joint_pos_history, joint_vel_history,
     if token.shape != (TOKEN_DIM,) or not np.isfinite(token).all():
         raise ValueError(f"Token must be {TOKEN_DIM} finite values, got {token.shape}")
 
-    # The deployment gathers gravity per frame from its state logger. A caller
-    # holding only the current orientation repeats it across the window.
-    gravity = np.tile(gravity_direction(base_quat_wxyz), (NUM_FRAMES, 1)).reshape(-1)
+    # The official state logger stores one orientation per historical frame.
+    # Retain the single-orientation fallback for standalone verification calls.
+    if base_quat_history is None:
+        gravity = np.tile(gravity_direction(base_quat_wxyz), (NUM_FRAMES, 1))
+    else:
+        quats = np.asarray(base_quat_history, dtype=np.float64)
+        if quats.shape != (NUM_FRAMES, 4):
+            raise ValueError(
+                f"base_quat_history must have shape ({NUM_FRAMES}, 4) oldest->newest, "
+                f"got {quats.shape}"
+            )
+        gravity = np.stack([gravity_direction(quat) for quat in quats])
 
     obs = np.zeros((1, INPUT_DIM), dtype=np.float32)
     obs[0, SLICES["token_state"]] = token
@@ -140,7 +153,7 @@ def pack_observation(token, joint_pos_history, joint_vel_history,
     obs[0, SLICES["his_last_actions_10frame_step1"]] = _history(
         last_action_history, "last_action_history", NUM_JOINTS
     )
-    obs[0, SLICES["his_gravity_dir_10frame_step1"]] = gravity
+    obs[0, SLICES["his_gravity_dir_10frame_step1"]] = gravity.reshape(-1)
     return obs
 
 
@@ -176,7 +189,7 @@ class SonicDecoder:
 
     def decode(self, token, joint_pos_history, joint_vel_history,
                last_action_history, base_ang_vel_history,
-               base_quat_wxyz) -> np.ndarray:
+               base_quat_wxyz, base_quat_history=None) -> np.ndarray:
         """Run one decoder step.
 
         Returns the raw ``(29,)`` action in **IsaacLab** order. Convert it to a
@@ -189,6 +202,7 @@ class SonicDecoder:
             last_action_history=last_action_history,
             base_ang_vel_history=base_ang_vel_history,
             base_quat_wxyz=base_quat_wxyz,
+            base_quat_history=base_quat_history,
         )
         action = self.session.run([self.output.name], {self.input.name: obs})[0]
         if action.shape != (1, OUTPUT_DIM) or not np.isfinite(action).all():

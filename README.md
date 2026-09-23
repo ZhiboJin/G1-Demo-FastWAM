@@ -144,6 +144,10 @@ Path resolution lives in `g1demo/paths.py`. `MENAGERIE_REPO`, `SONIC_REPO` and
 `FastWAM/` and `SIMPLE/`; SONIC and Menagerie are pinned submodules in this
 repository. SIMPLE supplies simulation tasks and data; the original FastWAM
 checkout supplies the policy code when a trained checkpoint is available.
+Locally, the repositories are siblings:
+`/home/justin/robotics/{G1-Demo-FastWAM,FastWAM,SIMPLE}`. A GitHub clone of this
+repository contains neither sibling; SIMPLE must be cloned separately to run
+its embodied-task environments.
 If you need NVIDIA's full SONIC source for the C++ comparison or URDF tools,
 run `git submodule update --init --depth 1 third_party/GR00T-WholeBodyControl`.
 The standing demo uses SONIC's downloaded ONNX graphs and does not need that
@@ -170,7 +174,7 @@ g1demo/
   sonic/
     encoder.py       motion reference -> 64-D token
     decoder.py       token + proprioception -> 29 joint actions
-  sim/g1_mujoco.py   mesh-free G1 plant with the deployment's PD gains
+  sim/g1_mujoco.py   G1 MuJoCo plant (Menagerie or mesh-free NVIDIA model)
   loop.py            the closed control loop
   policy.py          FastWAM adapter + scripted stand-in references
   bridge.py          SONIC reference-clip export for NVIDIA's C++ stack
