@@ -1,7 +1,8 @@
 # FastWAM × Unitree G1 — whole-body control through SONIC
 
-**Start with [START_HERE.md](START_HERE.md)** for the repository map, the one
-working demo command, and the remaining work before robot deployment.
+**New clone? Follow [INSTALL.md](INSTALL.md)** for the tested standing demo.
+Then read [START_HERE.md](START_HERE.md) for the repository map and the remaining
+work before robot deployment.
 The current comparison and training work is in
 [docs/SONIC_COMPARISON.md](docs/SONIC_COMPARISON.md) and
 [docs/TRAINING_STAGE2.md](docs/TRAINING_STAGE2.md).

@@ -1,5 +1,14 @@
 # Continuation log
 
+## 2026-09-23 — installation guide
+
+- Added `INSTALL.md` with the minimal fresh-clone path that was exercised:
+  Menagerie submodule, Python environment, SONIC ONNX download, 16-check
+  verification, and the five-second standing simulation. Linked it from the
+  README and `START_HERE.md`.
+- The guide explicitly marks language task training and robot deployment as
+  outstanding; the full official SONIC source remains an optional submodule.
+
 ## 2026-09-23
 
 - Confirmed this is the requested `ZhiboJin/G1-Demo-FastWAM` checkout. It was

@@ -1,5 +1,7 @@
 # G1 demo: start here
 
+For a fresh clone, follow [INSTALL.md](INSTALL.md) first.
+
 This is the **G1-Demo-FastWAM** git repository at
 `robotics/G1-Demo-FastWAM/`. Its sibling `robotics/FastWAM/` is a separate checkout
 of the upstream FastWAM research code. This repository pins the unmodified
